@@ -1,0 +1,16 @@
+apiVersion: appstudio.redhat.com/v1beta1
+kind: IntegrationTestScenario
+metadata:
+  name: example-pass
+  namespace: default
+spec:
+  application: application-sample
+  resolverRef:
+    resolver: git
+    params:
+      - name: url
+        value: https://github.com/14rcole/flask-konflux
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: .tekton/integration/basic-tests.yaml

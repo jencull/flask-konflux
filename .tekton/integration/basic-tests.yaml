@@ -1,0 +1,11 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: basic-tests
+spec:
+  tasks:
+    - name: hello
+      image: alpine
+      script: |
+        #!/bin/sh
+        echo "Hello, world!"
