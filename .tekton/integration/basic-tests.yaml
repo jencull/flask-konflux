@@ -6,4 +6,11 @@ spec:
   tasks:
     - name: hello
       taskRef:
-        name: hello
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/14rcole/flask-konflux.git
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: .tekton/integration/sample-task.yaml
