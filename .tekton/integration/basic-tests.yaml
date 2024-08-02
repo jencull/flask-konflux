@@ -5,9 +5,5 @@ metadata:
 spec:
   tasks:
     - name: hello
-      steps:
-        name: test-step
-        image: alpine
-        script: |
-          #!/bin/sh
-          echo "Hello, world!"
+      taskRef:
+        name: hello
