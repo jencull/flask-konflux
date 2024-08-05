@@ -4,6 +4,25 @@ metadata:
   name: basic-tests
 spec:
   tasks:
+    - name: provision-env-with-ephemeral-namespace
+      taskRef:
+        resolver: bundles
+        params:
+          - name: bundle
+            value: quay.io/redhat-appstudio-tekton-catalog/task-provision-env-with-ephemeral-namespace:0.1-6fa633c8d41e1f885951bfc9d74a5ee9499af79e
+          - name: name
+            value: provision-env-with-ephemeral-namespace
+          - name: kind
+            value: task
+      params:
+        - name: RESULT
+          value: SUCCESS
+        - name: KONFLUXNAMESPACE
+          value: $(context.pipelineRun.namespace)
+        - name: PIPELINERUN_NAME
+          value: $(context.pipelineRun.name)
+        - name: PIPELINERUN_UID
+          value: $(context.pipelineRun.uid)
     - name: hello
       taskRef:
         resolver: git
