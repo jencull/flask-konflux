@@ -22,14 +22,27 @@ spec:
         - name: PIPELINERUN_NAME
           value: $(context.pipelineRun.name)
         - name: PIPELINERUN_UID
-          value: $(context.pipelineRun.uid)
+          value: $(context.pipelineRun.uid)a
+    - name: deploy
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: "https://github.com/14rcole/flask-konflux.git"
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: ".tekton/integration/deploy.yaml"
+      params:
+        - name: serviceaccount-secret
+          value: $(tasks.provision-env-with-ephemeral-namespace.results.secretRef)
     - name: hello
       taskRef:
         resolver: git
         params:
           - name: url
-            value: https://github.com/14rcole/flask-konflux.git
+            value: "https://github.com/14rcole/flask-konflux.git"
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/integration/sample-task.yaml
+            value: ".tekton/integration/sample-task.yaml"

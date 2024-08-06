@@ -1,0 +1,32 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-container
+spec:
+  params:
+    - name: serviceaccount-secret
+      description: "Secret to service account that can access the ephemeral namespace"
+    - name: snapshot
+      description: The JSON string of the Snapshot under test
+  steps:
+    - name: echo
+      image: alpine
+      env:
+        - name: COMPONENT_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['appstudio.openshift.io/component']
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+      script: |
+        #!/bin/sh
+        
+        COMPONENT_CONTAINER_IMAGE=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .containerImage' <<< "${SNAPSHOT}")
+
+        echo "Echoing component container image"
+        echo $COMPONENT_CONTAINER_IMAGE
+
+        echo "Attempting to login with service account secret
+        oc login $(serviceaccount-secret)
+        oc whoami
+        #oc apply https://github.com/14rcole/flask-konflux/.tekton/integration/sample-task.yaml?ref=82adfba577
