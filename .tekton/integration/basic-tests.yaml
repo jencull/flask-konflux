@@ -3,6 +3,10 @@ kind: Pipeline
 metadata:
   name: basic-tests
 spec:
+  params:
+    - description: 'Application snapshot under test'
+      name: SNAPSHOT
+      type: string
   tasks:
     - name: provision-env-with-ephemeral-namespace
       taskRef:
@@ -34,6 +38,8 @@ spec:
           - name: pathInRepo
             value: ".tekton/integration/deploy.yaml"
       params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
         - name: serviceaccount-secret
           value: $(tasks.provision-env-with-ephemeral-namespace.results.secretRef)
     - name: hello

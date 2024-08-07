@@ -6,7 +6,7 @@ spec:
   params:
     - name: serviceaccount-secret
       description: "Secret to service account that can access the ephemeral namespace"
-    - name: snapshot
+    - name: SNAPSHOT
       description: The JSON string of the Snapshot under test
   steps:
     - name: echo
