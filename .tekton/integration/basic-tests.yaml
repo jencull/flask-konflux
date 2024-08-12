@@ -36,7 +36,8 @@ spec:
         - name: PIPELINERUN_UID
           value: $(context.pipelineRun.uid)a
     - name: deploy
-      runAfter: provision-env-with-ephemeral-namespace-local
+      runAfter:
+        - provision-env-with-ephemeral-namespace-local
       taskRef:
         resolver: git
         params:
