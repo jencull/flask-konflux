@@ -1,4 +1,4 @@
-FROM python:3.11-slim-buster
+FROM quay.io/rycole/python:3.11-slim-buster
 
 WORKDIR /python-docker
 
