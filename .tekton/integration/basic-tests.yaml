@@ -8,7 +8,7 @@ spec:
       name: SNAPSHOT
       type: string
   tasks:
-    - name: provision-env-with-ephemeral-namespace-local
+    - name: provision-env-with-ephemeral-namespace
       taskRef:
         resolver: bundles
         params:
@@ -18,26 +18,16 @@ spec:
             value: provision-env-with-ephemeral-namespace
           - name: kind
             value: task
-        # resolver: git
-        # params:
-        #  - name: url
-        #    value: "https://github.com/14rcole/flask-konflux.git"
-        #  - name: revision
-        #    value: main
-        #  - name: pathInRepo
-        #    value: ".tekton/integration/provision-env-with-ephemeral-namespace.yaml"
       params:
-        - name: RESULT
-          value: SUCCESS
         - name: KONFLUXNAMESPACE
           value: $(context.pipelineRun.namespace)
         - name: PIPELINERUN_NAME
           value: $(context.pipelineRun.name)
         - name: PIPELINERUN_UID
-          value: $(context.pipelineRun.uid)a
+          value: $(context.pipelineRun.uid)
     - name: deploy
       runAfter:
-        - provision-env-with-ephemeral-namespace-local
+        - provision-env-with-ephemeral-namespace
       taskRef:
         resolver: git
         params:
@@ -51,21 +41,4 @@ spec:
         - name: SNAPSHOT
           value: $(params.SNAPSHOT)
         - name: serviceaccount-secret
-          value: $(tasks.provision-env-with-ephemeral-namespace-local.results.secretRef)
-#    - name: hello
-#      taskRef:
-#        resolver: git
-#        params:
-#          - name: url
-#            value: "https://github.com/14rcole/flask-konflux.git"
-#          - name: revision
-#            value: main
-#          - name: pathInRepo
-#            value: ".tekton/integration/sample-task.yaml"
-    - name: wait
-      taskRef:
-        apiVersion: example.dev/v0
-        kind: Wait
-      params:
-      - name: duration
-        value: 10s
+          value: $(tasks.provision-env-with-ephemeral-namespace.results.secretRef)

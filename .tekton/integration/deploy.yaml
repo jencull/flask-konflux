@@ -10,7 +10,7 @@ spec:
       description: The JSON string of the Snapshot under test
   steps:
     - name: echo
-      image: alpine
+      image: registry.redhat.io/openshift4/ose-cli:4.13@sha256:73df37794ffff7de1101016c23dc623e4990810390ebdabcbbfa065214352c7c
       env:
         - name: COMPONENT_NAME
           valueFrom:
@@ -19,14 +19,14 @@ spec:
         - name: SNAPSHOT
           value: $(params.SNAPSHOT)
       script: |
-        #!/bin/sh
+        #!/bin/bash
         
         COMPONENT_CONTAINER_IMAGE=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .containerImage' <<< "${SNAPSHOT}")
 
         echo "Echoing component container image"
         echo $COMPONENT_CONTAINER_IMAGE
 
-        echo "Attempting to login with service account secret
+        echo "Attempting to login with service account secret"
         oc login $(serviceaccount-secret)
         oc whoami
         #oc apply https://github.com/14rcole/flask-konflux/.tekton/integration/sample-task.yaml?ref=82adfba577
