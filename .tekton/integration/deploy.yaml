@@ -20,13 +20,19 @@ spec:
           value: $(params.SNAPSHOT)
       script: |
         #!/bin/bash
-        
+        set -ex
+        set -o pipefail
+
+        dnf install -y jq 
         COMPONENT_CONTAINER_IMAGE=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .containerImage' <<< "${SNAPSHOT}")
 
         echo "Echoing component container image"
         echo $COMPONENT_CONTAINER_IMAGE
+        echo $(params.serviceaccount-secret)
+
+        oc get secret $(params.serviceaccount-secret)
 
         echo "Attempting to login with service account secret"
-        oc login $(serviceaccount-secret)
+        oc login --token $(params.serviceaccount-secret)
         oc whoami
         #oc apply https://github.com/14rcole/flask-konflux/.tekton/integration/sample-task.yaml?ref=82adfba577

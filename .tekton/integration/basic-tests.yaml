@@ -8,7 +8,7 @@ spec:
       name: SNAPSHOT
       type: string
   tasks:
-    - name: provision-env-with-ephemeral-namespace
+    - name: provision
       taskRef:
         resolver: bundles
         params:
@@ -27,7 +27,7 @@ spec:
           value: $(context.pipelineRun.uid)
     - name: deploy
       runAfter:
-        - provision-env-with-ephemeral-namespace
+        - provision
       taskRef:
         resolver: git
         params:
@@ -41,4 +41,4 @@ spec:
         - name: SNAPSHOT
           value: $(params.SNAPSHOT)
         - name: serviceaccount-secret
-          value: $(tasks.provision-env-with-ephemeral-namespace.results.secretRef)
+          value: $(tasks.provision.results.secretRef)
