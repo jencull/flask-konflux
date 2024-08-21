@@ -2,6 +2,7 @@ apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: hello
+  namespace: rycole-tenant
 spec:
   steps:
     - name: echo
