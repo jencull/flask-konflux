@@ -1,42 +1,97 @@
+---
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: basic-tests
+  name: deploy-operator
 spec:
+  description: |
+    An integration test which provisions an ephemeral Hypershift cluster and deploys an Operator
+    bundle from a Konflux snapshot.
   params:
-    - description: 'Application snapshot under test'
+    - description: Snapshot of the application
       name: SNAPSHOT
+      default: '{"components": [{"name":"test-app", "containerImage": "quay.io/example/repo:latest"}]}'
+      type: string
+    - description: Namespace where the the Operator bundle will be deployed.
+      name: NAMESPACE
+      default: default
+      type: string
+    - description: Name of the pod and service to be tested (oc expose gives the service the same name as the pod)
+      name: pod-and-svc-name
+      default: flask-konflux
       type: string
   tasks:
-    - name: provision
-      taskRef:
-        resolver: bundles
-        params:
-          - name: bundle
-            value: quay.io/redhat-appstudio-tekton-catalog/task-eaas-provision-space:0.1-0351e1e3df028e27e43877d9ca7e646be4ff2d65
-          - name: name
-            value: eaas-provision-space
-          - name: kind
-            value: task
-      params:
-        - name: ownerName
-          value: $(context.pipelineRun.name)
-        - name: ownerUid
-          value: $(context.pipelineRun.uid)
-    - name: deploy
-      runAfter:
-        - provision
+    - name: parse-metadata
       taskRef:
         resolver: git
         params:
           - name: url
-            value: "https://github.com/14rcole/flask-konflux.git"
+            value: https://github.com/konflux-ci/integration-examples
           - name: revision
             value: main
           - name: pathInRepo
-            value: ".tekton/integration/deploy.yaml"
+            value: tasks/test_metadata.yaml
       params:
         - name: SNAPSHOT
           value: $(params.SNAPSHOT)
+    - name: provision-namespace
+      runAfter:
+        - parse-metadata
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/build-definitions.git
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: task/provision-env-with-ephemeral-namespace/0.1/provision-env-with-ephemeral-namespace.yaml
+      params:
+        - name: KONFLUXNAMESPACE
+          value: $(context.pipelineRun.namespace)
+        - name: PIPELINERUN_NAME
+          value: $(context.pipelineRun.name)
+        - name: PIPELINERUN_UID
+          value: $(context.pipelineRun.uid)
+    - name: deploy-container
+      runAfter:
+        - provision-namespace
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/14rcole/flask-konflux.git
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: .tekton/integration/deploy.yaml
+      params:
         - name: serviceaccount-secret
-          value: $(tasks.provision.results.secretRef)
+          value: $(tasks.provision-namespace.results.secretRef)
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+        - name: pod-name
+          value: $(params.pod-and-svc-name)
+    - name: run-tests
+      runAfter:
+        - deploy-container
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/14rcole/flask-konflux.git
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: .tekton/integration/test.yaml
+      params:
+        - name: serviceaccount-secret
+          value: $(tasks.provision-namespace.results.secretRef)
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+        - name: svc-name
+          value: $(params.pod-and-svc-name)
+
+
+
+

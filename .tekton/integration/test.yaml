@@ -8,7 +8,7 @@ spec:
       description: "Secret to service account that can access the ephemeral namespace"
     - name: SNAPSHOT
       description: The JSON string of the Snapshot under test
-    - name: pod-name
+    - name: svc-name
   steps:
     - name: echo
       image: registry.redhat.io/openshift4/ose-cli:4.13@sha256:73df37794ffff7de1101016c23dc623e4990810390ebdabcbbfa065214352c7c
@@ -21,8 +21,8 @@ spec:
           value: $(params.SNAPSHOT)
         - name: SECRETNAME
           value: $(params.serviceaccount-secret)
-        - name: PODNAME
-          value: $(params.pod-name)
+        - name: URL
+          value: $(params.svc-name)
       script: |
         #!/bin/bash
         set -ex
@@ -31,12 +31,19 @@ spec:
         oc get secret $SECRETNAME --template '{{.data.kubeconfig}}' | base64 -d > /kubeconfig
         export KUBECONFIG=/kubeconfig
 
-        dnf install -y jq gettext
-        export COMPONENT_CONTAINER_IMAGE=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .containerImage' <<< "${SNAPSHOT}")
+        assert_eq() {
+          local expected="$1"
+          local actual="$2"
+          local msg="${3-}"
+        
+          if [ "$expected" == "$actual" ]; then
+            return 0
+          else
+            [ "${#msg}" -gt 0 ] && log_failure "$expected == $actual :: $msg" || true
+            return 1
+          fi
+        }
 
-        echo "Echoing component container image"
-
-        curl https://raw.githubusercontent.com/14rcole/flask-konflux/main/.tekton/integration/pod-and-svc.yaml | envsubst | oc apply -f - # create pod with test image
-        CLUSTER_IP=$(oc expose pod $PODNAME -o jsonpath={.spec.clusterIP}) #expose pod port
-        sleep 5 #make sure the pod is running
-        oc run -i --tty --rm debug --image=curlimages/curl --restart=Never -- curl ${PODNAME}:5000
+        # attempt to query pod
+        OUTPUT=$(oc run -i --tty --rm debug --image=curlimages/curl --restart=Never -- curl ${URL}:5000)
+        assert_eq "$OUTPUT" "<h1>Hello from Flask & Dockerfile</h1>" "not equal"
