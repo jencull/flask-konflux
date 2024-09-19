@@ -2,7 +2,7 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: deploy-operator
+  name: deploy-and-test
 spec:
   description: |
     An integration test which provisions an ephemeral Hypershift cluster and deploys an Operator
@@ -21,19 +21,19 @@ spec:
       default: flask-konflux
       type: string
   tasks:
-    - name: parse-metadata
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/konflux-ci/integration-examples
-          - name: revision
-            value: main
-          - name: pathInRepo
-            value: tasks/test_metadata.yaml
-      params:
-        - name: SNAPSHOT
-          value: $(params.SNAPSHOT)
+    #    - name: parse-metadata
+    #      taskRef:
+    #        resolver: git
+    #        params:
+    #          - name: url
+    #            value: https://github.com/konflux-ci/integration-examples
+    #          - name: revision
+    #            value: main
+    #          - name: pathInRepo
+    #            value: tasks/test_metadata.yaml
+    #      params:
+    #        - name: SNAPSHOT
+    #          value: $(params.SNAPSHOT)
     - name: provision-namespace
       runAfter:
         - parse-metadata
