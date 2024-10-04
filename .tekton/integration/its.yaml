@@ -9,7 +9,7 @@ spec:
     resolver: git
     params:
       - name: url
-        value: https://github.com/14rcole/flask-konflux
+        value: https://github.com/jencull/flask-konflux
       - name: revision
         value: main
       - name: pathInRepo

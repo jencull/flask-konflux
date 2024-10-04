@@ -58,7 +58,7 @@ spec:
         resolver: git
         params:
           - name: url
-            value: https://github.com/14rcole/flask-konflux.git
+            value: https://github.com/jencull/flask-konflux.git
           - name: revision
             value: main
           - name: pathInRepo
@@ -77,7 +77,7 @@ spec:
         resolver: git
         params:
           - name: url
-            value: https://github.com/14rcole/flask-konflux.git
+            value: https://github.com/jencull/flask-konflux.git
           - name: revision
             value: main
           - name: pathInRepo
@@ -96,7 +96,7 @@ spec:
         resolver: git
         params:
           - name: url
-            value: https://github.com/14rcole/flask-konflux.git
+            value: https://github.com/jencull/flask-konflux.git
           - name: revision
             value: main
           - name: pathInRepo
