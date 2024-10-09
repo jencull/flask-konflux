@@ -1,9 +1,9 @@
-FROM quay.io/rycole/python:3.11-slim-buster
+FROM python:3.11-slim-buster
 
 WORKDIR /python-docker
 
 COPY requirements.txt requirements.txt
-run pip3 install -r requirements.txt
+RUN pip3 install -r requirements.txt
 
 COPY . .
 
