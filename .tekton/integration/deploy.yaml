@@ -1,4 +1,4 @@
-apiVersion: tekton.dev/v1
+apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
   name: deploy-container
@@ -30,7 +30,7 @@ spec:
         #!/bin/bash
         set -ex
         set -o pipefail
-       
+
         oc get secret $SECRETNAME --template '{{.data.kubeconfig}}' | base64 -d > /kubeconfig
         export KUBECONFIG=/kubeconfig
 
@@ -40,7 +40,34 @@ spec:
 
         echo "Echoing component container image"
 
-        curl https://raw.githubusercontent.com/jencull/flask-konflux/main/.tekton/integration/pod-and-svc.yaml | envsubst | oc apply -f - # create pod with test image
-        CLUSTER_IP=$(oc expose pod $PODNAME -o jsonpath={.spec.clusterIP}) #expose pod port
-        sleep 5 #make sure the pod is running
+        curl https://raw.githubusercontent.com/jencull/flask-konflux/main/.tekton/integration/pod-and-svc.yaml | envsubst | oc apply -f -
+
+        CLUSTER_IP=$(oc expose pod $PODNAME -o jsonpath={.spec.clusterIP})
+
+        max_attempts=10  # Number of retry attempts
+        attempt=1        # Initial attempt
+        backoff_time=10  # Time in seconds between attempts
+
+        while true; do
+        echo "Checking if pod $PODNAME is ready (Attempt $attempt/$max_attempts)..."
+  
+        oc wait --for=condition=Ready pod/$PODNAME --timeout=10s && break
+  
+        if [[ $attempt -eq $max_attempts ]]; then
+          echo "Pod $PODNAME is not ready after $max_attempts attempts. Exiting..."
+          exit 1
+        fi
+  
+        attempt=$((attempt + 1))
+        sleep $backoff_time
+        done
+
+        OUTPUT=$(oc run -i --tty --rm debug --image=curlimages/curl --restart=Never -- curl ${PODNAME}:5000)
+
         oc run -i --tty --rm debug --image=curlimages/curl --restart=Never -- curl ${PODNAME}:5000
+        assert_eq "$OUTPUT" "<h1>Hello from Flask & Dockerfile</h1>"
+
+        if ! assert_eq "$OUTPUT" "<h1>Hello from Flask & Konflux</h1>"; then
+          echo "Test failed. Exiting."
+          exit 1
+        fi    

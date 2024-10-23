@@ -45,5 +45,10 @@ spec:
         }
 
         # attempt to query pod
-        OUTPUT=$(oc run -i --tty --rm debug --image=curlimages/curl --restart=Never -- curl ${URL}:5000)
+        OUTPUT=$(oc run -i --tty --rm debug --image=curlimages/curl --restart=Never -- curl ${URL}:5000 | sed 's/pod "debug" deleted//g')
         assert_eq "$OUTPUT" "<h1>Hello from Flask & Dockerfile</h1>"
+
+        if ! assert_eq "$OUTPUT" "<h1>Hello from Flask & Konflux</h1>"; then
+          echo "Test failed. Exiting."
+          exit 1
+        fi    
