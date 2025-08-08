@@ -1,0 +1,39 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: nested-pipeline
+spec:
+  tasks:
+    - name: basic-tests
+      pipelineRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/14rcole/flask-konflux
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: .tekton/integration/pipelines/basic-tests.yaml
+    - name: enterprise-contract
+      pipelineRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/build-definitions
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: pipelines/enterprise-contract.yaml
+      runAfter:
+        - basic-tests
+    - name: hello-world
+      taskRef:
+        resolver: git 
+        params:
+          - name: url 
+            value: https://github.com/14rcole/flask-konflux
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: .tekton/integration/tasks/sample-task.yaml
+

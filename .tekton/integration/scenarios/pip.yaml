@@ -1,0 +1,16 @@
+apiVersion: appstudio.redhat.com/v1beta2
+kind: IntegrationTestScenario
+metadata:
+  name: pipelines-in-pipelines
+  namespace: rycole-tenant
+spec:
+  application: flask-konflux
+  resolverRef:
+    resolver: git
+    params:
+      - name: url
+        value: https://github.com/14rcole/flask-konflux
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: .tekton/integration/pipelines/pipelines-in-pipelines.yaml
