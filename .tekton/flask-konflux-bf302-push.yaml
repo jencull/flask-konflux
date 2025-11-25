@@ -640,7 +640,6 @@ spec:
       workspaces:
         - name: shared-data
           workspace: $(params.shared-workspace-name)
-          
     workspaces:
     - name: git-auth
       optional: true

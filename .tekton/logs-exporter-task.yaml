@@ -39,6 +39,8 @@ spec:
           value: "$(params.pipeline-run-name)"
         - name: PR_NAMESPACE
           value: "$(params.namespace)"
+        - name: HOME
+          value: /tmp
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -97,6 +99,8 @@ spec:
           value: $(params.quay-username)
         - name: QUAY_PASSWORD
           value: $(params.quay-password)
+        - name: HOME
+          value: /tmp
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -110,6 +114,9 @@ spec:
 
         FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
         REGISTRY_HOST="${QUAY_REPO%%/*}"
+        
+        export HOME=/tmp
+        export DOCKER_CONFIG=/tmp/.docker/
         
         echo "Logging into Quay.io..."
         podman login -u "${QUAY_USERNAME}" -p "${QUAY_PASSWORD}" "${REGISTRY_HOST}"
