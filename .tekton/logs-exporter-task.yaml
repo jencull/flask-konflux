@@ -34,8 +34,6 @@ spec:
     - name: fetch-and-prepare-logs
       image: registry.redhat.io/openshift4/ose-cli:latest
       workingDir: $(workspaces.shared-data.path)
-      securityContext:
-        runAsUser: 1000
       env:
         - name: PR_NAME
           value: "$(params.pipeline-run-name)"
@@ -92,8 +90,6 @@ spec:
     - name: build-and-push-to-quay
       image: 'quay.io/buildah/stable:latest'
       workingDir: $(workspaces.shared-data.path)
-      securityContext:
-        runAsUser: 1000
       env:
         - name: QUAY_REPO
           value: $(params.quay-repo)
