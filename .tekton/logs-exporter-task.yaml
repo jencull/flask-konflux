@@ -78,7 +78,7 @@ spec:
             LABEL konflux-log-archive-name="${IMAGE_TAG}"
             COPY ${ARCHIVE_FILENAME} /
             EOF
-            echo "Created Dockerfile for log artifact."
+            echo "Created Dockerfile for log artifact"
 
             # 4. Save the IMAGE_TAG for the next step's script
             echo -n "${IMAGE_TAG}" > $(workspaces.shared-data.path)/IMAGE_TAG
