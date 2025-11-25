@@ -17,6 +17,9 @@ metadata:
   name: flask-konflux-bf302-on-push
   namespace: rh-ee-jcullina-tenant
 spec:
+  # --------------------------------------------------------------------------
+  # 1. TOP-LEVEL PIPELINERUN PARAMETERS (Passing actual values/secrets)
+  # --------------------------------------------------------------------------
   params:
   - name: git-url
     value: '{{source_url}}'
@@ -606,6 +609,38 @@ spec:
         operator: in
         values:
         - "false"
+    finally:
+    - name: show-sbom
+      params:
+      - name: IMAGE_URL
+        value: $(tasks.build-image-index.results.IMAGE_URL)
+      taskRef:
+        params:
+        - name: name
+          value: show-sbom
+        - name: bundle
+          value: quay.io/konflux-ci/tekton-catalog/task-show-sbom:0.1@sha256:945a7c9066d3e0a95d3fddb7e8a6992e4d632a2a75d8f3a9bd2ff2fef0ec9aa0
+        - name: kind
+          value: task
+        resolver: bundles
+    - name: export-logs-for-retention
+      taskRef:
+        name: export-pipeline-logs-simple-push
+      params:
+        - name: pipeline-run-name
+          value: $(context.pipelineRun.name)
+        - name: namespace
+          value: $(context.pipelineRun.namespace)
+        - name: quay-repo
+          value: $(params.log-quay-repo)
+        - name: quay-username
+          value: $(params.log-quay-user)
+        - name: quay-password
+          value: $(params.log-quay-token)
+      workspaces:
+        - name: shared-data
+          workspace: $(params.shared-workspace-name)
+          
     workspaces:
     - name: git-auth
       optional: true
