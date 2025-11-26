@@ -610,19 +610,6 @@ spec:
         values:
         - "false"
     finally:
-    - name: show-sbom
-      params:
-      - name: IMAGE_URL
-        value: $(tasks.build-image-index.results.IMAGE_URL)
-      taskRef:
-        params:
-        - name: name
-          value: show-sbom
-        - name: bundle
-          value: quay.io/konflux-ci/tekton-catalog/task-show-sbom:0.1@sha256:945a7c9066d3e0a95d3fddb7e8a6992e4d632a2a75d8f3a9bd2ff2fef0ec9aa0
-        - name: kind
-          value: task
-        resolver: bundles
     - name: export-logs-for-retention
       taskRef:
         name: export-pipeline-logs-simple-push
