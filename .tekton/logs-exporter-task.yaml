@@ -7,17 +7,11 @@ metadata:
 spec:
   description: |
     Gathers all logs from a completed Tekton PipelineRun, packages them into a simple
-    "FROM scratch" image artifact, and pushes the image to a specified Quay repository for long-term retention.
+    "FROM scratch" image artifact, and pushes the image to a specified Quay repository (using SA implicit auth).
   params:
     - name: quay-repo
       type: string
-      description: The full path to the Quay repository (e.g., quay.io/rh-ee-jcullina/logs).
-    - name: quay-username
-      type: string
-      description: The Quay Robot Account username (e.g., my-org+robot).
-    - name: quay-password
-      type: string
-      description: The Quay Robot Account token.
+      description: The full path to the Quay repository (e.g., quay.io/redhat-user-workloads/rh-ee-jcullina-tenant/app-name).
     - name: pipeline-run-name
       type: string
       description: The name of the PipelineRun whose logs should be collected.
@@ -47,7 +41,8 @@ spec:
         
         LOG_FILENAME="${PR_NAME}-all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
-        IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)"
+        # Append '-logs' to the tag to clearly mark it as a log artifact
+        IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
 
         echo "Starting log export for PipelineRun: ${PR_NAME}"
         
@@ -95,14 +90,10 @@ spec:
       env:
         - name: QUAY_REPO
           value: $(params.quay-repo)
-        - name: QUAY_USERNAME
-          value: $(params.quay-username)
-        - name: QUAY_PASSWORD
-          value: $(params.quay-password)
         - name: HOME
           value: /tmp
         - name: DOCKER_CONFIG
-          value: /tmp/.docker/
+          value: /tmp/.docker/ 
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -114,18 +105,16 @@ spec:
             exit 0
         fi
 
+        # The repo path is passed as the parameter, the tag includes the timestamp and '-logs' suffix
         FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
-        REGISTRY_HOST="${QUAY_REPO%%/*}"
 
-        mkdir -p /tmp/.docker/
-
-        echo "Logging into Quay.io..."
-        podman login -u "${QUAY_USERNAME}" -p "${QUAY_PASSWORD}" "${REGISTRY_HOST}"
+        # --- IMPORTANT CHANGE: REMOVED EXPLICIT podman login ---
+        # Authentication is now handled implicitly by the ServiceAccount's mounted credentials.
 
         echo "Building log artifact image..."
         podman build -t "${FULL_IMAGE_URL}" -f Dockerfile .
 
-        echo "Pushing log artifact to Quay: ${FULL_IMAGE_URL}"
+        echo "Pushing log artifact to Quay (using SA Auth): ${FULL_IMAGE_URL}"
         podman push "${FULL_IMAGE_URL}"
         
         echo "Log artifact successfully uploaded to Quay"

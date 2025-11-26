@@ -586,6 +586,20 @@ spec:
         operator: in
         values:
         - "false"
+    finally:
+    - name: export-logs-for-retention
+      taskRef:
+        name: export-pipeline-logs-simple-push
+      params:
+        - name: pipeline-run-name
+          value: $(context.pipelineRun.name)
+        - name: namespace
+          value: $(context.pipelineRun.namespace)
+        - name: quay-repo
+          value: $(params.output-image) 
+      workspaces:
+        - name: shared-data
+          workspace: workspace
     workspaces:
     - name: git-auth
       optional: true
