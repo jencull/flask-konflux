@@ -101,8 +101,6 @@ spec:
           value: $(params.quay-password)
         - name: HOME
           value: /tmp
-        - name: DOCKER_CONFIG
-          value: /tmp/.docker/
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -116,8 +114,6 @@ spec:
 
         FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
         REGISTRY_HOST="${QUAY_REPO%%/*}"
-
-        mkdir -p /tmp/.docker/
 
         echo "Logging into Quay.io..."
         podman login -u "${QUAY_USERNAME}" -p "${QUAY_PASSWORD}" "${REGISTRY_HOST}"
