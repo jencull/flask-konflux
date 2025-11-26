@@ -117,6 +117,8 @@ spec:
         FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
         REGISTRY_HOST="${QUAY_REPO%%/*}"
 
+        mkdir -p /tmp/.docker/
+
         echo "Logging into Quay.io..."
         podman login -u "${QUAY_USERNAME}" -p "${QUAY_PASSWORD}" "${REGISTRY_HOST}"
 
