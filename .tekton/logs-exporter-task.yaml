@@ -7,7 +7,7 @@ metadata:
 spec:
   description: |
     Gathers all logs from a completed Tekton PipelineRun, packages them into a simple
-    "FROM scratch" image artifact, and pushes the image to a specified Quay repository (using SA implicit auth).
+    "FROM scratch" image artifact, and pushes the image to a specified Quay repository.
   params:
     - name: quay-repo
       type: string
@@ -19,9 +19,16 @@ spec:
       type: string
       description: The namespace where the PipelineRun was executed.
       default: "$(context.pipelineRun.namespace)"
+    - name: registry-credentials-secret
+      type: string
+      description: Name of the Secret containing the registry credentials for pushing to Quay.
   workspaces:
     - name: shared-data
       description: Workspace for log archiving and image creation files.
+  volumes:
+    - name: sa-docker-secret
+      secret:
+        secretName: $(params.registry-credentials-secret)
   steps:
     - name: fetch-and-prepare-logs
       image: registry.redhat.io/openshift4/ose-cli:latest
@@ -67,11 +74,9 @@ spec:
             tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
             echo "Created compressed archive: ${ARCHIVE_FILENAME}"
             
-            cat <<-DOCKERFILE_CONTENT > Dockerfile
-            FROM scratch
-            LABEL konflux-log-archive-name="${IMAGE_TAG}"
-            COPY ${ARCHIVE_FILENAME} /
-            DOCKERFILE_CONTENT
+            echo "FROM scratch" > Dockerfile
+            echo "LABEL konflux-log-archive-name=\"${IMAGE_TAG}\"" >> Dockerfile
+            echo "COPY ${ARCHIVE_FILENAME} /" >> Dockerfile
             echo "Created Dockerfile for log artifact"
 
             echo -n "${IMAGE_TAG}" > $(workspaces.shared-data.path)/IMAGE_TAG
@@ -86,7 +91,6 @@ spec:
       env:
         - name: QUAY_REPO
           value: $(params.quay-repo)
-        # Removed: HOME and DOCKER_CONFIG envs (relying on mount + subpath)
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -101,7 +105,6 @@ spec:
         FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
 
         echo "Building log artifact image..."
-        # Note: podman will use the mounted config.json at /tekton/home/.docker/config.json
         podman build -t "${FULL_IMAGE_URL}" -f Dockerfile .
 
         echo "Pushing log artifact to Quay: ${FULL_IMAGE_URL}"
@@ -114,7 +117,3 @@ spec:
           mountPath: /tekton/home/.docker/config.json
           subPath: .dockerconfigjson
           readOnly: true
-  volumes:
-    - name: sa-docker-secret
-      secret:
-        secretName: "build-pipeline-flask-konflux-ce03d-dockercfg-jbbvc"
