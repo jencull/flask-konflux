@@ -48,8 +48,10 @@ spec:
           CMD="kubectl"
         fi
 
+        # Attempt to get all logs from the PipelineRun (standard in modern Tekton)
         ${CMD} logs --namespace "${PR_NAMESPACE}" pipelinerun/"${PR_NAME}" --all > "${LOG_FILENAME}" 2>/dev/null || {
             echo "Attempting log retrieval for older clusters by tasks..."
+            # Fallback for older clusters
             ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
               ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" --all >> "${LOG_FILENAME}" 2>/dev/null || true
             done
@@ -79,10 +81,7 @@ spec:
       env:
         - name: QUAY_REPO
           value: $(params.quay-repo)
-        - name: HOME
-          value: /tekton/home
-        - name: DOCKER_CONFIG
-          value: /tekton/home/.docker
+        # Removed: HOME and DOCKER_CONFIG envs (relying on mount + subpath)
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -97,9 +96,10 @@ spec:
         FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
 
         echo "Building log artifact image..."
+        # Note: podman will use the mounted config.json at /tekton/home/.docker/config.json
         podman build -t "${FULL_IMAGE_URL}" -f Dockerfile .
 
-        echo "Pushing log artifact to Quay (using explicitly mounted SA token): ${FULL_IMAGE_URL}"
+        echo "Pushing log artifact to Quay: ${FULL_IMAGE_URL}"
         podman push "${FULL_IMAGE_URL}"
         
         echo "Log artifact successfully uploaded to Quay"
