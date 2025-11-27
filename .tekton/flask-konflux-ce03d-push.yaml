@@ -589,7 +589,7 @@ spec:
     finally:
     - name: export-logs-for-retention
       taskRef:
-        name: export-pipeline-logs-simple-push
+        name: export-pipeline-logs
       params:
         - name: pipeline-run-name
           value: $(context.pipelineRun.name)
