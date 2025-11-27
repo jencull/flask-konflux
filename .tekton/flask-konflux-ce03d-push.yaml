@@ -601,6 +601,7 @@ spec:
         - name: shared-data
           workspace: workspace
     workspaces:
+    - name: workspace
     - name: git-auth
       optional: true
     - name: netrc

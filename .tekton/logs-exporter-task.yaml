@@ -41,22 +41,17 @@ spec:
         
         LOG_FILENAME="${PR_NAME}-all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
-        # Append '-logs' to the tag to clearly mark it as a log artifact
         IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
 
         echo "Starting log export for PipelineRun: ${PR_NAME}"
         
-        # Determine CLI (oc for OpenShift, kubectl otherwise)
         CMD="oc"
         if ! command -v oc &> /dev/null; then
           CMD="kubectl"
         fi
 
-        # Fetch all logs from the PipelineRun
-        # Tries the simple --all command first
         ${CMD} logs --namespace "${PR_NAMESPACE}" pipelinerun/"${PR_NAME}" --all > "${LOG_FILENAME}" 2>/dev/null || {
             echo "Attempting log retrieval for older clusters by tasks..."
-            # Fallback for older clusters: loop through all TaskRuns and concatenate logs
             ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
               ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" --all >> "${LOG_FILENAME}" 2>/dev/null || true
             done
@@ -64,12 +59,9 @@ spec:
         
         if [ -s "${LOG_FILENAME}" ]; then
             echo "Successfully fetched logs."
-            
-            # 2. Compress the log file.
             tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
             echo "Created compressed archive: ${ARCHIVE_FILENAME}"
             
-            # 3. Create a simple Dockerfile to package the archive
             cat <<EOF > Dockerfile
             FROM scratch
             LABEL konflux-log-archive-name="${IMAGE_TAG}"
@@ -77,7 +69,6 @@ spec:
             EOF
             echo "Created Dockerfile for log artifact"
 
-            # 4. Save the IMAGE_TAG for the next step's script
             echo -n "${IMAGE_TAG}" > $(workspaces.shared-data.path)/IMAGE_TAG
         else
             echo "Warning: Log file is empty. Skipping artifact creation."
@@ -91,9 +82,9 @@ spec:
         - name: QUAY_REPO
           value: $(params.quay-repo)
         - name: HOME
-          value: /tmp
+          value: /tekton/home
         - name: DOCKER_CONFIG
-          value: /tmp/.docker/ 
+          value: /tekton/home/.docker
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -105,16 +96,23 @@ spec:
             exit 0
         fi
 
-        # The repo path is passed as the parameter, the tag includes the timestamp and '-logs' suffix
         FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
-
-        # --- IMPORTANT CHANGE: REMOVED EXPLICIT podman login ---
-        # Authentication is now handled implicitly by the ServiceAccount's mounted credentials.
 
         echo "Building log artifact image..."
         podman build -t "${FULL_IMAGE_URL}" -f Dockerfile .
 
-        echo "Pushing log artifact to Quay (using SA Auth): ${FULL_IMAGE_URL}"
+        echo "Pushing log artifact to Quay (using explicitly mounted SA token): ${FULL_IMAGE_URL}"
         podman push "${FULL_IMAGE_URL}"
         
         echo "Log artifact successfully uploaded to Quay"
+      
+      volumeMounts:
+        - name: sa-docker-secret
+          mountPath: /tekton/home/.docker/config.json
+          subPath: .dockerconfigjson
+          readOnly: true
+
+  volumes:
+    - name: sa-docker-secret
+      secret:
+        secretName: "build-pipeline-flask-konflux-ce03d-dockercfg-jbbvc"
