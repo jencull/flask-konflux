@@ -19,11 +19,9 @@ spec:
       type: string
       description: The namespace where the PipelineRun was executed.
       default: "$(context.pipelineRun.namespace)"
-      
   workspaces:
     - name: shared-data
       description: Workspace for log archiving and image creation files.
-
   steps:
     - name: fetch-and-prepare-logs
       image: registry.redhat.io/openshift4/ose-cli:latest
@@ -111,7 +109,6 @@ spec:
           mountPath: /tekton/home/.docker/config.json
           subPath: .dockerconfigjson
           readOnly: true
-
   volumes:
     - name: sa-docker-secret
       secret:
