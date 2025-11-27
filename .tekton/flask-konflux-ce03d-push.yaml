@@ -586,7 +586,22 @@ spec:
         operator: in
         values:
         - "false"
+    finally:
+    - name: export-logs-for-retention
+      taskRef:
+        name: export-pipeline-logs-simple-push
+      params:
+        - name: pipeline-run-name
+          value: $(context.pipelineRun.name)
+        - name: namespace
+          value: $(context.pipelineRun.namespace)
+        - name: quay-repo
+          value: $(params.output-image) 
+      workspaces:
+        - name: shared-data
+          workspace: workspace
     workspaces:
+    - name: workspace
     - name: git-auth
       optional: true
     - name: netrc
@@ -594,7 +609,21 @@ spec:
   taskRunTemplate:
     serviceAccountName: build-pipeline-flask-konflux-ce03d
   workspaces:
+  - name: workspace
+    volumeClaimTemplate:
+      metadata:
+        creationTimestamp: null
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+      status: {}
   - name: git-auth
     secret:
       secretName: '{{ git_auth_secret }}'
+  - name: netrc
+    secret:
+      secretName: '{{ netrc_secret }}'
 status: {}
