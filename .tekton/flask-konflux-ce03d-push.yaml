@@ -596,7 +596,9 @@ spec:
         - name: namespace
           value: $(context.pipelineRun.namespace)
         - name: quay-repo
-          value: $(params.output-image) 
+          value: $(params.output-image)
+        - name: registry-credentials-secret
+          value: build-pipeline-flask-konflux-ce03d-dockercfg-jbbvc 
       workspaces:
         - name: shared-data
           workspace: workspace
