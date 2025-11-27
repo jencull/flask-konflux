@@ -67,11 +67,11 @@ spec:
             tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
             echo "Created compressed archive: ${ARCHIVE_FILENAME}"
             
-            cat <<-EOF > Dockerfile
+            cat <<-DOCKERFILE_CONTENT > Dockerfile
             FROM scratch
             LABEL konflux-log-archive-name="${IMAGE_TAG}"
             COPY ${ARCHIVE_FILENAME} /
-            EOF
+            DOCKERFILE_CONTENT
             echo "Created Dockerfile for log artifact"
 
             echo -n "${IMAGE_TAG}" > $(workspaces.shared-data.path)/IMAGE_TAG
