@@ -24,7 +24,7 @@ spec:
       description: Workspace for log archiving and image creation files.
   steps:
     - name: fetch-and-prepare-logs
-      image: quay.io/konflux-ci/konflux-tools:latest
+      image: registry.redhat.io/openshift4/ose-cli:latest
       workingDir: $(workspaces.shared-data.path)
       env:
         - name: PR_NAME
@@ -36,6 +36,11 @@ spec:
       script: |
         #!/bin/bash
         set -euo pipefail
+
+        microdnf install jq -y || {
+          echo "Warning: microdnf failed. Attempting dnf install."
+          dnf install jq -y
+        }
         
         LOG_FILENAME="${PR_NAME}-all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
