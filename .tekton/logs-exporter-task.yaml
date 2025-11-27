@@ -1,7 +1,7 @@
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: export-pipeline-logs-simple-push
+  name: export-pipeline-logs
   labels:
     app.kubernetes.io/managed-by: tekton
 spec:
