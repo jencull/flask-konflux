@@ -7,8 +7,8 @@ metadata:
 spec:
   description: |
     Gathers all logs from a completed Tekton PipelineRun, packages them into a simple
-    OCI artifact (tar.gz blob), constructs the final OCI reference, and pushes it to 
-    a specified Quay repository using a secure OCI push step.
+    OCI artifact (tar.gz blob), and pushes it to a specified Quay repository using direct
+    OCI push commands, bypassing StepAction parameter expansion issues.
   params:
     - name: quay-repo
       type: string
@@ -26,8 +26,6 @@ spec:
   results:
     - name: LOG_ARTIFACT_TAG
       description: The specific tag generated for the log artifact.
-    - name: OCI_REFERENCE
-      description: The final fully constructed OCI reference (repo:tag).
   workspaces:
     - name: shared-data
       description: Workspace for log archiving and OCI artifact creation files. 
@@ -84,32 +82,52 @@ spec:
             echo "Created compressed archive: ${ARCHIVE_FILENAME}"
             
             echo -n "${IMAGE_TAG}" > $(results.LOG_ARTIFACT_TAG.path)
-            
-            echo -n "${FULL_OCI_REF}" > $(results.OCI_REFERENCE.path) 
-            echo "Generated OCI reference: ${FULL_OCI_REF}"
         else
             echo "Warning: Log file is empty. Skipping artifact creation."
             exit 0
         fi
 
-    - name: push-log-artifact
-      ref:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/konflux-ci/tekton-integration-catalog.git
-          - name: revision
-            value: main
-          - name: pathInRepo
-            value: stepactions/secure-push-oci/0.1/secure-push-oci.yaml
-      params:
-        - name: workdir-path
-          value: $(workspaces.shared-data.path)
-        - name: oci-ref
-          value: $(steps.fetch-and-prepare-logs.results.OCI_REFERENCE)
-        - name: credentials-volume-name
-          value: credentials-volume
-      volumeMounts:
-        - name: credentials-volume
-          mountPath: /tekton/creds/.docker
-          readOnly: true
+    - name: secure-push-oci-direct
+      image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
+      workingDir: $(workspaces.shared-data.path)
+      env:
+        - name: OCI_REFERENCE_BASE
+          value: $(params.quay-repo)
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        
+        # 1. Read the dynamically generated tag (This assumes the previous step wrote a file named image-tag.txt,
+        # but since we removed the OCI_REFERENCE result, we need to read the tag from the result file directly)
+        IMAGE_TAG=$(cat $(results.LOG_ARTIFACT_TAG.path))
+        
+        # 2. Construct the final OCI Reference
+        REPO_NAME_ONLY="${OCI_REFERENCE_BASE%:*}"
+        FULL_OCI_REF="${REPO_NAME_ONLY}:${IMAGE_TAG}"
+        echo "Ready to push artifact to: ${FULL_OCI_REF}"
+        
+        # 3. Setup authentication using the default Task volume mount path
+        # The Task volume is mounted to the standard path /tekton/volumes/credentials-volume/
+        AUTH_DIR="/tekton/volumes/credentials-volume"
+        AUTH_PATH="$AUTH_DIR/.dockerconfigjson"
+        
+        if [ -f "$AUTH_PATH" ]; then
+          # Create a temporary config dir for oras/docker and copy the secret file there
+          TEMP_DOCKER_CONFIG="$(mktemp -d)"
+          cp "$AUTH_PATH" "$TEMP_DOCKER_CONFIG/config.json"
+          export DOCKER_CONFIG="$TEMP_DOCKER_CONFIG"
+          echo "Using temporary DOCKER_CONFIG: $DOCKER_CONFIG"
+        else
+          echo "ERROR: Credentials file NOT found at $AUTH_PATH (standard volume path). Attempting push without explicit auth setup."
+          # Continue without explicit DOCKER_CONFIG; relying on ServiceAccount token if possible.
+          # This is the point where we hope the failure stops being fatal.
+        fi
+        
+        # 4. Push the artifact using the oras utility directly
+        echo "Executing oras push..."
+        oras push --no-tty \
+          --artifact-type "application/vnd.logs.tar+gzip" \
+          "${FULL_OCI_REF}" \
+          "logs.tar.gz:application/vnd.logs.tar+gzip"
+        
+        echo "Successfully pushed log artifact to ${FULL_OCI_REF}"
