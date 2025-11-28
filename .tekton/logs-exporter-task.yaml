@@ -7,11 +7,11 @@ metadata:
 spec:
   description: |
     Gathers all logs from a completed Tekton PipelineRun, packages them into a simple
-    "FROM scratch" image artifact, and pushes the image to a specified Quay repository.
+    OCI artifact (tar.gz blob) and pushes it to a specified Quay repository.
   params:
     - name: quay-repo
       type: string
-      description: The full path to the Quay repository
+      description: The base Quay repository path (e.g., quay.io/org/repo).
     - name: pipeline-run-name
       type: string
       description: The name of the PipelineRun whose logs should be collected.
@@ -19,9 +19,19 @@ spec:
       type: string
       description: The namespace where the PipelineRun was executed.
       default: "$(context.pipelineRun.namespace)"
+    - name: artifact-credentials-secret
+      type: string
+      description: Name of the secret containing registry credentials (must match what secure-push-oci expects, e.g., 'oci-storage-dockerconfigjson' key).
+  results:
+    - name: LOG_ARTIFACT_TAG
+      description: The specific tag generated for the log artifact.
   workspaces:
     - name: shared-data
       description: Workspace for log archiving and image creation files. 
+  volumes:
+    - name: credentials-volume
+      secret:
+        secretName: $(params.artifact-credentials-secret)
   steps:
     - name: fetch-and-prepare-logs
       image: registry.redhat.io/openshift4/ose-cli:latest
@@ -42,9 +52,9 @@ spec:
           dnf install jq -y
         }
         
-        LOG_FILENAME="${PR_NAME}-all-logs.txt"
+        LOG_FILENAME="logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
-        IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
+        IMAGE_TAG="$(params.pipeline-run-name)-$(date +%Y%m%d%H%M%S)-logs"
 
         echo "Starting log export for PipelineRun: ${PR_NAME}"
         
@@ -69,41 +79,31 @@ spec:
             tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
             echo "Created compressed archive: ${ARCHIVE_FILENAME}"
             
-            echo "FROM scratch" > Dockerfile
-            echo "LABEL konflux-log-archive-name=\"${IMAGE_TAG}\"" >> Dockerfile
-            echo "COPY ${ARCHIVE_FILENAME} /" >> Dockerfile
-            echo "Created Dockerfile for log artifact"
-
-            echo -n "${IMAGE_TAG}" > $(workspaces.shared-data.path)/IMAGE_TAG
+            # Write the tag to the Tekton result
+            echo -n "${IMAGE_TAG}" > $(results.LOG_ARTIFACT_TAG.path)
         else
             echo "Warning: Log file is empty. Skipping artifact creation."
             exit 0
         fi
 
-    - name: build-and-push-to-quay
-      image: 'quay.io/buildah/stable:latest'
-      workingDir: $(workspaces.shared-data.path)
-      env:
-        - name: QUAY_REPO
-          value: $(params.quay-repo)
-      script: |
-        #!/bin/bash
-        set -euo pipefail
-
-        IMAGE_TAG=$(cat $(workspaces.shared-data.path)/IMAGE_TAG 2>/dev/null || echo "")
-        
-        if [ -z "${IMAGE_TAG}" ]; then
-            echo "Skipping push step, log archive not found."
-            exit 0
-        fi
-
-        FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
-
-        echo "Building log artifact image..."
-
-        buildah bud -t "${FULL_IMAGE_URL}" -f Dockerfile .
-
-        echo "Pushing log artifact to Quay: ${FULL_IMAGE_URL}"
-        buildah push "${FULL_IMAGE_URL}"
-        
-        echo "Log artifact successfully uploaded to Quay"
+    - name: push-log-artifact
+      ref:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/tekton-integration-catalog.git
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: stepactions/secure-push-oci/0.1/secure-push-oci.yaml
+      params:
+        - name: workdir-path
+          value: $(workspaces.shared-data.path)
+        - name: oci-ref
+          value: $(params.quay-repo):$(results.LOG_ARTIFACT_TAG)
+        - name: credentials-volume-name
+          value: credentials-volume
+        - name: file-path
+          value: logs.tar.gz
+        - name: media-type
+          value: application/vnd.logs.tar+gzip
