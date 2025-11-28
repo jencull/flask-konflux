@@ -7,8 +7,8 @@ metadata:
 spec:
   description: |
     Gathers all logs from a completed Tekton PipelineRun, packages them into a simple
-    OCI artifact (tar.gz blob) and pushes it to a specified Quay repository using a
-    secure OCI push step.
+    OCI artifact (tar.gz blob), constructs the final OCI reference, and pushes it to 
+    a specified Quay repository using a secure OCI push step.
   params:
     - name: quay-repo
       type: string
@@ -26,6 +26,8 @@ spec:
   results:
     - name: LOG_ARTIFACT_TAG
       description: The specific tag generated for the log artifact.
+    - name: OCI_REFERENCE
+      description: The final fully constructed OCI reference (repo:tag).
   workspaces:
     - name: shared-data
       description: Workspace for log archiving and OCI artifact creation files. 
@@ -42,17 +44,23 @@ spec:
           value: "$(params.pipeline-run-name)"
         - name: PR_NAMESPACE
           value: "$(params.namespace)"
+        - name: OCI_REPO
+          value: "$(params.quay-repo)"
         - name: HOME
           value: /tmp
       script: |
         #!/bin/bash
         set -euo pipefail
 
+        # Install jq if needed
         microdnf install jq -y || dnf install jq -y
         
         LOG_FILENAME="all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
-        IMAGE_TAG="$(params.pipeline-run-name)-$(date +%Y%m%d%H%M%S)-logs"
+        # Generate unique tag
+        IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
+        # Construct the full OCI reference
+        FULL_OCI_REF="${OCI_REPO}:${IMAGE_TAG}"
 
         echo "Starting log export for PipelineRun: ${PR_NAME}"
         
@@ -63,9 +71,12 @@ spec:
 
         set -x 
         
+        # Log retrieval logic: Attempt to get all logs from the PipelineRun, 
+        # falling back to getting logs per TaskRun if the primary command fails.
         ${CMD} logs --namespace "${PR_NAMESPACE}" pipelinerun/"${PR_NAME}" --all > "${LOG_FILENAME}" 2>&1 || {
             echo "Primary log retrieval failed, attempting fallback for older clusters by tasks..."
             ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
+              # We use '|| true' here to ensure the loop continues even if a specific taskrun log fails
               ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" --all >> "${LOG_FILENAME}" 2>&1 || true
             done
         }
@@ -77,37 +88,17 @@ spec:
             tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
             echo "Created compressed archive: ${ARCHIVE_FILENAME}"
             
-            # Write the tag to the Tekton result
+            # Write the tag to the dedicated Task Result
             echo -n "${IMAGE_TAG}" > $(results.LOG_ARTIFACT_TAG.path)
             
-            # Write the tag to a shared file for the next step to consume
-            echo -n "${IMAGE_TAG}" > image-tag.txt
+            # Write the FULL OCI reference to the new Result for the next step to consume
+            echo -n "${FULL_OCI_REF}" > $(results.OCI_REFERENCE.path) 
+            echo "Generated OCI reference: ${FULL_OCI_REF}"
         else
             echo "Warning: Log file is empty. Skipping artifact creation."
             exit 0
         fi
 
-    - name: read-tag-and-push
-      image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
-      workingDir: $(workspaces.shared-data.path)
-      env:
-        - name: OCI_REFERENCE
-          value: $(params.quay-repo)
-      script: |
-        #!/bin/bash
-        set -euo pipefail
-        
-        # Read the generated tag
-        IMAGE_TAG=$(cat image-tag.txt)
-        
-        # Construct the final OCI Reference
-        FULL_OCI_REF="${OCI_REFERENCE}:${IMAGE_TAG}"
-        
-        # Write the full reference to a file for the next step to use
-        echo -n "${FULL_OCI_REF}" > full-oci-ref.txt
-        
-        echo "Ready to push artifact to: ${FULL_OCI_REF}"
-        
     - name: push-log-artifact
       ref:
         resolver: git
@@ -121,7 +112,10 @@ spec:
       params:
         - name: workdir-path
           value: $(workspaces.shared-data.path)
+        # FIX: Pass the Task Result from the previous step. Tekton provides the literal 
+        # string value of the result, which is the correct format for oci-ref.
         - name: oci-ref
-          value: $(cat $(workspaces.shared-data.path)/full-oci-ref.txt)
+          value: $(steps.fetch-and-prepare-logs.results.OCI_REFERENCE)
         - name: credentials-volume-name
           value: credentials-volume
+  
