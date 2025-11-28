@@ -28,6 +28,10 @@ spec:
   workspaces:
     - name: shared-data
       description: Workspace for log archiving and image creation files.
+  volumes:
+    - name: credentials-volume
+      secret:
+        secretName: $(params.artifact-credentials-secret)
   steps:
     - name: fetch-and-prepare-logs
       image: registry.redhat.io/openshift4/ose-cli:latest
@@ -139,31 +143,16 @@ spec:
             exit 0
         fi
 
-    - name: push-log-artifact
-      image: registry.redhat.io/openshift4/ose-cli:latest
+    - name: secure-push-oci
+      image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
       workingDir: $(workspaces.shared-data.path)
-      env:
-        - name: HOME
-          value: /tmp
-        - name: QUAY_REPO
-          value: $(params.quay-repo)
       script: |
         #!/bin/bash
         set -euo pipefail
         
-        echo "=========================================="
-        echo "=== PUSH-LOG-ARTIFACT STEP STARTED ==="
-        echo "=========================================="
-        echo "Working directory: $(pwd)"
-        echo "HOME: ${HOME}"
-        echo "QUAY_REPO: ${QUAY_REPO}"
-        echo ""
-        echo "Files in working directory:"
-        ls -la || true
-        echo ""
+        echo "=== SECURE PUSH OCI STEP ==="
         
         # Read the tag from the file created in the previous step
-        echo "=== READING ARTIFACT TAG ==="
         if [ -f "image-tag.txt" ]; then
           IMAGE_TAG=$(cat image-tag.txt)
           echo "✓ Read tag from image-tag.txt: ${IMAGE_TAG}"
@@ -171,290 +160,43 @@ spec:
           echo "✗ ERROR: image-tag.txt not found!"
           exit 1
         fi
-        OCI_REF="${QUAY_REPO}:${IMAGE_TAG}"
+        
+        OCI_REF="$(params.quay-repo):${IMAGE_TAG}"
         echo "✓ OCI reference: ${OCI_REF}"
-        echo ""
         
-        # Install oras if not available
-        echo "=== CHECKING ORAS INSTALLATION ==="
-        if command -v oras &> /dev/null; then
-          ORAS_PATH=$(command -v oras)
-          ORAS_VERSION=$(oras version 2>/dev/null || echo "unknown")
-          echo "✓ oras already installed at: ${ORAS_PATH}"
-          echo "✓ oras version: ${ORAS_VERSION}"
-        else
-          echo "✗ oras not found, installing..."
-          ORAS_VERSION="1.1.0"
-          ORAS_URL="https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz"
-          echo "Downloading oras v${ORAS_VERSION} from: ${ORAS_URL}"
-          echo "Using timeout: 60 seconds"
-          
-          # Try with timeout if available, otherwise use curl directly
-          if command -v timeout &> /dev/null; then
-            timeout 60 curl -L --progress-bar -o "oras_${ORAS_VERSION}_linux_amd64.tar.gz" "${ORAS_URL}" || {
-              echo "✗ Failed to download oras (timeout or network error)"
-              echo "Checking network connectivity..."
-              if command -v ping &> /dev/null; then
-                timeout 5 ping -c 1 github.com 2>&1 || echo "Cannot reach github.com"
-              fi
-              exit 1
-            }
-          else
-            echo "⚠ timeout command not available, using curl without timeout"
-            curl -L --progress-bar -o "oras_${ORAS_VERSION}_linux_amd64.tar.gz" "${ORAS_URL}" --max-time 60 || {
-              echo "✗ Failed to download oras (network error or timeout)"
-              exit 1
-            }
-          fi
-          
-          if [ -f "oras_${ORAS_VERSION}_linux_amd64.tar.gz" ]; then
-            FILE_SIZE=$(stat -f%z "oras_${ORAS_VERSION}_linux_amd64.tar.gz" 2>/dev/null || stat -c%s "oras_${ORAS_VERSION}_linux_amd64.tar.gz" 2>/dev/null || echo "unknown")
-            echo "✓ Downloaded oras tarball (${FILE_SIZE} bytes)"
-          else
-            echo "✗ Downloaded file not found"
-            exit 1
-          fi
-          
-          echo "Extracting oras..."
-          tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin/ oras || {
-            echo "✗ Failed to extract oras"
-            echo "Archive contents:"
-            tar -tzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" 2>&1 | head -10 || true
-            exit 1
-          }
-          echo "✓ Extracted oras to /usr/local/bin/oras"
-          
-          chmod +x /usr/local/bin/oras
-          echo "✓ Set executable permissions"
-          
-          rm "oras_${ORAS_VERSION}_linux_amd64.tar.gz"
-          echo "✓ Cleaned up tarball"
-          
-          if command -v oras &> /dev/null; then
-            echo "✓ oras installation verified"
-            oras version 2>&1 || echo "⚠ oras version check failed but command exists"
-          else
-            echo "✗ oras installation failed - command not found after install"
-            echo "Checking /usr/local/bin:"
-            ls -la /usr/local/bin/oras 2>&1 || true
-            exit 1
-          fi
-        fi
-        echo ""
-        
-        # Set up authentication with verbose logging
-        echo "=== AUTHENTICATION SETUP ==="
-        SECRET_NAME="$(params.artifact-credentials-secret)"
-        echo "Secret name: ${SECRET_NAME}"
-        echo "Quay repo: ${QUAY_REPO}"
-        mkdir -p "$HOME/.docker"
-        echo "Created .docker directory at: $HOME/.docker"
-        
-        AUTH_METHOD="none"
-        
-        # Try multiple authentication methods with detailed logging
-        echo ""
-        echo "--- Method 1: Checking Tekton mounted credentials ---"
-        if [ -f "/tekton/creds/.docker/config.json" ]; then
-          echo "✓ Found /tekton/creds/.docker/config.json"
-          cp /tekton/creds/.docker/config.json "$HOME/.docker/config.json"
-          if [ -f "$HOME/.docker/config.json" ] && [ -s "$HOME/.docker/config.json" ]; then
-            echo "✓ Successfully copied Tekton mounted credentials"
-            AUTH_METHOD="tekton-mounted"
-          else
-            echo "✗ Failed to copy credentials file"
-          fi
-        else
-          echo "✗ /tekton/creds/.docker/config.json not found"
-        fi
-        
-        # Only try other methods if the first one didn't work
-        if [ "$AUTH_METHOD" = "none" ]; then
-          echo ""
-          echo "--- Method 2: Checking for oc command ---"
-          if command -v oc &> /dev/null; then
-            echo "✓ oc command found at: $(command -v oc)"
-            echo "Attempting to get secret '${SECRET_NAME}' using oc..."
-            if oc get secret "${SECRET_NAME}" >/dev/null 2>&1; then
-              echo "✓ Secret '${SECRET_NAME}' exists"
-              oc get secret "${SECRET_NAME}" -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > "$HOME/.docker/config.json" 2>&1
-              if [ $? -eq 0 ] && [ -f "$HOME/.docker/config.json" ] && [ -s "$HOME/.docker/config.json" ]; then
-                echo "✓ Successfully retrieved secret using oc"
-                AUTH_METHOD="oc-secret"
-              else
-                echo "✗ Failed to decode or write secret data"
-                echo "Error output: $(oc get secret "${SECRET_NAME}" -o jsonpath='{.data.\.dockerconfigjson}' 2>&1 | head -c 100)"
-              fi
-            else
-              echo "✗ Secret '${SECRET_NAME}' not found or not accessible"
-            fi
-          else
-            echo "✗ oc command not found"
-          fi
-        fi
-        
-        if [ "$AUTH_METHOD" = "none" ]; then
-          echo ""
-          echo "--- Method 3: Checking for kubectl command ---"
-          if command -v kubectl &> /dev/null; then
-            echo "✓ kubectl command found at: $(command -v kubectl)"
-            echo "Attempting to get secret '${SECRET_NAME}' using kubectl..."
-            if kubectl get secret "${SECRET_NAME}" >/dev/null 2>&1; then
-              echo "✓ Secret '${SECRET_NAME}' exists"
-              kubectl get secret "${SECRET_NAME}" -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > "$HOME/.docker/config.json" 2>&1
-              if [ $? -eq 0 ] && [ -f "$HOME/.docker/config.json" ] && [ -s "$HOME/.docker/config.json" ]; then
-                echo "✓ Successfully retrieved secret using kubectl"
-                AUTH_METHOD="kubectl-secret"
-              else
-                echo "✗ Failed to decode or write secret data"
-              fi
-            else
-              echo "✗ Secret '${SECRET_NAME}' not found or not accessible"
-            fi
-          else
-            echo "✗ kubectl command not found"
-          fi
-        fi
-        
-        echo ""
-        echo "=== AUTHENTICATION RESULT ==="
-        if [ -f "$HOME/.docker/config.json" ] && [ -s "$HOME/.docker/config.json" ]; then
-          echo "✓ Authentication file exists: $HOME/.docker/config.json"
-          FILE_SIZE=$(stat -f%z "$HOME/.docker/config.json" 2>/dev/null || stat -c%s "$HOME/.docker/config.json" 2>/dev/null || echo "unknown")
-          echo "✓ File size: ${FILE_SIZE} bytes"
-          
-          # Validate it's valid JSON
-          if command -v jq &> /dev/null; then
-            if jq empty "$HOME/.docker/config.json" 2>/dev/null; then
-              echo "✓ Authentication file is valid JSON"
-              # Check if it has auths section
-              if jq -e '.auths' "$HOME/.docker/config.json" >/dev/null 2>&1; then
-                AUTH_COUNT=$(jq '.auths | length' "$HOME/.docker/config.json" 2>/dev/null || echo "0")
-                echo "✓ Found ${AUTH_COUNT} registry auth entry/entries"
-              else
-                echo "⚠ WARNING: No 'auths' section found in config.json"
-              fi
-            else
-              echo "✗ ERROR: Authentication file is not valid JSON!"
-              jq empty "$HOME/.docker/config.json" 2>&1 | head -5
-            fi
-          else
-            echo "⚠ jq not available, skipping JSON validation"
-          fi
-          
-          echo "✓ Authentication method used: ${AUTH_METHOD}"
-          export DOCKER_CONFIG="$HOME/.docker"
-          echo "✓ DOCKER_CONFIG set to: $DOCKER_CONFIG"
-        else
-          echo "✗ ERROR: No valid authentication file found!"
-          echo "✗ Authentication method: ${AUTH_METHOD}"
-          echo "✗ Cannot proceed without authentication"
-          echo "Available files in $HOME/.docker:"
-          ls -la "$HOME/.docker/" 2>/dev/null || echo "Directory does not exist"
-          exit 1
-        fi
-        echo "=============================="
-        echo ""
-        
-        # Push the tar.gz file as an OCI artifact
-        echo "=== PUSHING ARTIFACT ==="
+        # Verify the file to push exists
         if [ ! -f "logs.tar.gz" ]; then
-          echo "✗ ERROR: logs.tar.gz not found in working directory!"
-          echo "Current directory: $(pwd)"
-          echo "Files in directory:"
-          ls -la || true
+          echo "✗ ERROR: logs.tar.gz not found!"
           exit 1
         fi
-        FILE_SIZE=$(stat -f%z logs.tar.gz 2>/dev/null || stat -c%s logs.tar.gz 2>/dev/null || echo "unknown")
-        echo "✓ Found logs.tar.gz (${FILE_SIZE} bytes)"
-        echo "Pushing to: ${OCI_REF}"
-        echo "Artifact type: application/vnd.logs.tar+gzip"
-        echo ""
+        echo "✓ Found logs.tar.gz to push"
         
-        # Test registry connectivity first
-        echo "--- Testing registry connectivity ---"
-        REGISTRY_HOST=$(echo "${QUAY_REPO}" | cut -d'/' -f1)
-        echo "Registry host: ${REGISTRY_HOST}"
-        if command -v timeout &> /dev/null; then
-          if timeout 10 bash -c "echo > /dev/tcp/${REGISTRY_HOST}/443" 2>/dev/null; then
-            echo "✓ Registry port 443 is reachable"
-          else
-            echo "⚠ Warning: Cannot reach registry on port 443 (may still work with different port)"
-          fi
+        # The secure-push-oci StepAction logic:
+        # It uses the credentials from the mounted volume at /tekton/creds
+        # and pushes the file using oras
+        
+        # Set up authentication from the mounted credentials volume
+        if [ -f "/tekton/creds/.docker/config.json" ]; then
+          echo "✓ Using credentials from /tekton/creds/.docker/config.json"
+          export DOCKER_CONFIG="/tekton/creds/.docker"
         else
-          echo "⚠ timeout command not available, skipping connectivity test"
+          echo "✗ ERROR: Credentials not found at /tekton/creds/.docker/config.json"
+          echo "Available in /tekton/creds:"
+          ls -la /tekton/creds/ 2>&1 || true
+          exit 1
         fi
-        echo ""
         
-        # Function to push with timeout
-        push_with_timeout() {
-          local timeout_seconds=300  # 5 minutes
-          local start_time=$(date +%s)
-          
-          echo "Starting push (timeout: ${timeout_seconds}s)..."
-          echo "Command: oras push --no-tty --artifact-type application/vnd.logs.tar+gzip ${OCI_REF} logs.tar.gz:application/vnd.logs.tar+gzip"
-          echo ""
-          
-          # Run oras push in background and monitor
-          oras push --no-tty \
-            --artifact-type "application/vnd.logs.tar+gzip" \
-            "${OCI_REF}" \
-            "logs.tar.gz:application/vnd.logs.tar+gzip" &
-          local push_pid=$!
-          
-          # Monitor the process
-          while kill -0 $push_pid 2>/dev/null; do
-            local current_time=$(date +%s)
-            local elapsed=$((current_time - start_time))
-            
-            if [ $elapsed -ge $timeout_seconds ]; then
-              echo ""
-              echo "✗ ERROR: Push operation timed out after ${timeout_seconds} seconds"
-              kill -9 $push_pid 2>/dev/null || true
-              return 1
-            fi
-            
-            # Print progress every 30 seconds
-            if [ $((elapsed % 30)) -eq 0 ] && [ $elapsed -gt 0 ]; then
-              echo "[${elapsed}s elapsed] Push still in progress..."
-            fi
-            
-            sleep 2
-          done
-          
-          # Wait for the process to finish and get exit code
-          wait $push_pid
-          return $?
+        # Push using oras (same as secure-push-oci StepAction does)
+        echo "Pushing artifact to ${OCI_REF}..."
+        oras push --no-tty \
+          --artifact-type "application/vnd.logs.tar+gzip" \
+          "${OCI_REF}" \
+          "logs.tar.gz:application/vnd.logs.tar+gzip" || {
+          echo "✗ ERROR: Failed to push artifact"
+          exit 1
         }
         
-        # Try to use timeout command if available, otherwise use our function
-        if command -v timeout &> /dev/null; then
-          echo "Using timeout command for push operation..."
-          timeout 300 oras push --no-tty \
-            --artifact-type "application/vnd.logs.tar+gzip" \
-            "${OCI_REF}" \
-            "logs.tar.gz:application/vnd.logs.tar+gzip" || {
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 124 ]; then
-              echo ""
-              echo "✗ ERROR: Push operation timed out after 300 seconds"
-            else
-              echo ""
-              echo "✗ ERROR: Failed to push artifact to ${OCI_REF} (exit code: $EXIT_CODE)"
-            fi
-            echo "Check authentication and network connectivity"
-            exit 1
-          }
-        else
-          echo "timeout command not available, using custom timeout wrapper..."
-          push_with_timeout || {
-            echo ""
-            echo "✗ ERROR: Failed to push artifact to ${OCI_REF}"
-            echo "Check authentication and network connectivity"
-            exit 1
-          }
-        fi
-        
-        echo ""
         echo "✓ Successfully pushed log artifact to ${OCI_REF}"
-        echo "=== PUSH COMPLETE ==="
+      volumeMounts:
+        - name: credentials-volume
+          mountPath: /tekton/creds

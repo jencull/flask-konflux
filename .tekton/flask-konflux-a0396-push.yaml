@@ -608,14 +608,14 @@ spec:
           value: flask-konflux-a0396-image-push
       workspaces:
         - name: shared-data
-          workspace: workspace
+          workspace: log-export-workspace
   taskRunTemplate:
     serviceAccountName: build-pipeline-flask-konflux-a0396
   workspaces:
   - name: git-auth
     secret:
       secretName: '{{ git_auth_secret }}'
-  - name: workspace
+  - name: log-export-workspace
     emptyDir: {}
   - name: netrc
     emptyDir: {}
