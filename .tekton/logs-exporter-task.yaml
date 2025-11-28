@@ -27,11 +27,7 @@ spec:
       description: The specific tag generated for the log artifact.
   workspaces:
     - name: shared-data
-      description: Workspace for log archiving and image creation files. 
-  volumes:
-    - name: credentials-volume
-      secret:
-        secretName: $(params.artifact-credentials-secret)
+      description: Workspace for log archiving and image creation files.
   steps:
     - name: fetch-and-prepare-logs
       image: registry.redhat.io/openshift4/ose-cli:latest
@@ -101,48 +97,167 @@ spec:
         set -euo pipefail
         
         # Read the tag from the file created in the previous step
-        IMAGE_TAG=$(cat image-tag.txt)
-        OCI_REF="${QUAY_REPO}:${IMAGE_TAG}"
-        
-        echo "Pushing log artifact to: ${OCI_REF}"
-        
-        # Install oras if not available
-        if ! command -v oras &> /dev/null; then
-          echo "Installing oras..."
-          ORAS_VERSION="1.1.0"
-          curl -LO "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz"
-          tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin/ oras
-          chmod +x /usr/local/bin/oras
-          rm "oras_${ORAS_VERSION}_linux_amd64.tar.gz"
-        fi
-        
-        # Set up authentication
-        if command -v select-oci-auth &> /dev/null; then
-          select-oci-auth "${QUAY_REPO}" > "$HOME/auth.json" || {
-            echo "Failed to select OCI auth"
-            exit 1
-          }
-          export DOCKER_CONFIG="$HOME"
-        elif [ -f "/tekton/creds/.docker/config.json" ]; then
-          # Fallback to Tekton credentials
-          mkdir -p "$HOME/.docker"
-          cp /tekton/creds/.docker/config.json "$HOME/.docker/config.json" || true
-          export DOCKER_CONFIG="$HOME/.docker"
+        echo "=== READING ARTIFACT TAG ==="
+        if [ -f "image-tag.txt" ]; then
+          IMAGE_TAG=$(cat image-tag.txt)
+          echo "✓ Read tag from image-tag.txt: ${IMAGE_TAG}"
         else
-          echo "No authentication method found"
+          echo "✗ ERROR: image-tag.txt not found!"
           exit 1
         fi
+        OCI_REF="${QUAY_REPO}:${IMAGE_TAG}"
+        echo "✓ OCI reference: ${OCI_REF}"
+        echo ""
         
-        #  Push the tar.gz file as an OCI artifact
+        # Install oras if not available
+        echo "=== CHECKING ORAS INSTALLATION ==="
+        if command -v oras &> /dev/null; then
+          ORAS_PATH=$(command -v oras)
+          ORAS_VERSION=$(oras version 2>/dev/null || echo "unknown")
+          echo "✓ oras already installed at: ${ORAS_PATH}"
+          echo "✓ oras version: ${ORAS_VERSION}"
+        else
+          echo "✗ oras not found, installing..."
+          ORAS_VERSION="1.1.0"
+          echo "Downloading oras v${ORAS_VERSION}..."
+          curl -LO "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz" || {
+            echo "✗ Failed to download oras"
+            exit 1
+          }
+          echo "✓ Downloaded oras tarball"
+          tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin/ oras || {
+            echo "✗ Failed to extract oras"
+            exit 1
+          }
+          echo "✓ Extracted oras to /usr/local/bin/oras"
+          chmod +x /usr/local/bin/oras
+          echo "✓ Set executable permissions"
+          rm "oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+          echo "✓ Cleaned up tarball"
+          if command -v oras &> /dev/null; then
+            echo "✓ oras installation verified"
+          else
+            echo "✗ oras installation failed - command not found after install"
+            exit 1
+          fi
+        fi
+        echo ""
+        
+        # Set up authentication with verbose logging
+        echo "=== AUTHENTICATION SETUP ==="
+        SECRET_NAME="$(params.artifact-credentials-secret)"
+        echo "Secret name: ${SECRET_NAME}"
+        echo "Quay repo: ${QUAY_REPO}"
+        mkdir -p "$HOME/.docker"
+        echo "Created .docker directory at: $HOME/.docker"
+        
+        AUTH_METHOD="none"
+        
+        # Try multiple authentication methods with detailed logging
+        echo ""
+        echo "--- Method 1: Checking Tekton mounted credentials ---"
+        if [ -f "/tekton/creds/.docker/config.json" ]; then
+          echo "✓ Found /tekton/creds/.docker/config.json"
+          cp /tekton/creds/.docker/config.json "$HOME/.docker/config.json"
+          if [ -f "$HOME/.docker/config.json" ] && [ -s "$HOME/.docker/config.json" ]; then
+            echo "✓ Successfully copied Tekton mounted credentials"
+            AUTH_METHOD="tekton-mounted"
+          else
+            echo "✗ Failed to copy credentials file"
+          fi
+        else
+          echo "✗ /tekton/creds/.docker/config.json not found"
+        fi
+        
+        # Only try other methods if the first one didn't work
+        if [ "$AUTH_METHOD" = "none" ]; then
+          echo ""
+          echo "--- Method 2: Checking for oc command ---"
+          if command -v oc &> /dev/null; then
+            echo "✓ oc command found at: $(command -v oc)"
+            echo "Attempting to get secret '${SECRET_NAME}' using oc..."
+            if oc get secret "${SECRET_NAME}" >/dev/null 2>&1; then
+              echo "✓ Secret '${SECRET_NAME}' exists"
+              oc get secret "${SECRET_NAME}" -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > "$HOME/.docker/config.json" 2>&1
+              if [ $? -eq 0 ] && [ -f "$HOME/.docker/config.json" ] && [ -s "$HOME/.docker/config.json" ]; then
+                echo "✓ Successfully retrieved secret using oc"
+                AUTH_METHOD="oc-secret"
+              else
+                echo "✗ Failed to decode or write secret data"
+                echo "Error output: $(oc get secret "${SECRET_NAME}" -o jsonpath='{.data.\.dockerconfigjson}' 2>&1 | head -c 100)"
+              fi
+            else
+              echo "✗ Secret '${SECRET_NAME}' not found or not accessible"
+            fi
+          else
+            echo "✗ oc command not found"
+          fi
+        fi
+        
+        if [ "$AUTH_METHOD" = "none" ]; then
+          echo ""
+          echo "--- Method 3: Checking for kubectl command ---"
+          if command -v kubectl &> /dev/null; then
+            echo "✓ kubectl command found at: $(command -v kubectl)"
+            echo "Attempting to get secret '${SECRET_NAME}' using kubectl..."
+            if kubectl get secret "${SECRET_NAME}" >/dev/null 2>&1; then
+              echo "✓ Secret '${SECRET_NAME}' exists"
+              kubectl get secret "${SECRET_NAME}" -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > "$HOME/.docker/config.json" 2>&1
+              if [ $? -eq 0 ] && [ -f "$HOME/.docker/config.json" ] && [ -s "$HOME/.docker/config.json" ]; then
+                echo "✓ Successfully retrieved secret using kubectl"
+                AUTH_METHOD="kubectl-secret"
+              else
+                echo "✗ Failed to decode or write secret data"
+              fi
+            else
+              echo "✗ Secret '${SECRET_NAME}' not found or not accessible"
+            fi
+          else
+            echo "✗ kubectl command not found"
+          fi
+        fi
+        
+        echo ""
+        echo "=== AUTHENTICATION RESULT ==="
+        if [ -f "$HOME/.docker/config.json" ] && [ -s "$HOME/.docker/config.json" ]; then
+          echo "✓ Authentication file exists: $HOME/.docker/config.json"
+          echo "✓ File size: $(stat -f%z "$HOME/.docker/config.json" 2>/dev/null || stat -c%s "$HOME/.docker/config.json" 2>/dev/null || echo "unknown") bytes"
+          echo "✓ Authentication method used: ${AUTH_METHOD}"
+          export DOCKER_CONFIG="$HOME/.docker"
+          echo "✓ DOCKER_CONFIG set to: $DOCKER_CONFIG"
+        else
+          echo "✗ WARNING: No valid authentication file found!"
+          echo "✗ Authentication method: ${AUTH_METHOD}"
+          echo "⚠ Attempting push without explicit auth (may fail if registry requires auth)"
+        fi
+        echo "=============================="
+        echo ""
+        
+        # Push the tar.gz file as an OCI artifact
+        echo "=== PUSHING ARTIFACT ==="
+        if [ ! -f "logs.tar.gz" ]; then
+          echo "✗ ERROR: logs.tar.gz not found in working directory!"
+          echo "Current directory: $(pwd)"
+          echo "Files in directory:"
+          ls -la || true
+          exit 1
+        fi
+        echo "✓ Found logs.tar.gz ($(stat -f%z logs.tar.gz 2>/dev/null || stat -c%s logs.tar.gz 2>/dev/null || echo "unknown") bytes)"
+        echo "Pushing to: ${OCI_REF}"
+        echo "Artifact type: application/vnd.logs.tar+gzip"
+        echo "Running: oras push --no-tty --artifact-type application/vnd.logs.tar+gzip ${OCI_REF} logs.tar.gz:application/vnd.logs.tar+gzip"
+        echo ""
+        
         oras push --no-tty \
           --artifact-type "application/vnd.logs.tar+gzip" \
           "${OCI_REF}" \
           "logs.tar.gz:application/vnd.logs.tar+gzip" || {
-          echo "Failed to push artifact"
+          echo ""
+          echo "✗ ERROR: Failed to push artifact to ${OCI_REF}"
+          echo "Check authentication and network connectivity"
           exit 1
         }
         
-        echo "Successfully pushed log artifact to ${OCI_REF}"
-      volumeMounts:
-        - name: credentials-volume
-          mountPath: /tekton/creds
+        echo ""
+        echo "✓ Successfully pushed log artifact to ${OCI_REF}"
+        echo "=== PUSH COMPLETE ==="
