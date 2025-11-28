@@ -19,9 +19,6 @@ spec:
       type: string
       description: The namespace where the PipelineRun was executed.
       default: "$(context.pipelineRun.namespace)"
-    - name: registry-credentials-secret
-      type: string
-      description: Name of the Secret containing the registry credentials for pushing to Quay.
   workspaces:
     - name: shared-data
       description: Workspace for log archiving and image creation files. 
@@ -56,19 +53,15 @@ spec:
           CMD="kubectl"
         fi
 
-        # Start tracing commands
         set -x 
         
-        # Attempt to get all logs from the PipelineRun (standard in modern Tekton)
         ${CMD} logs --namespace "${PR_NAMESPACE}" pipelinerun/"${PR_NAME}" --all > "${LOG_FILENAME}" 2>&1 || {
             echo "Primary log retrieval failed, attempting fallback for older clusters by tasks..."
-            # Fallback for older clusters
             ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
               ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" --all >> "${LOG_FILENAME}" 2>&1 || true
             done
         }
 
-        # Stop tracing commands
         set +x
         
         if [ -s "${LOG_FILENAME}" ]; then
@@ -107,8 +100,6 @@ spec:
         FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
 
         echo "Building log artifact image..."
-
-        # The debug check is removed since we trust the SA now.
 
         podman build -t "${FULL_IMAGE_URL}" -f Dockerfile .
 
