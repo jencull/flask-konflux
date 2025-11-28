@@ -24,11 +24,7 @@ spec:
       description: Name of the Secret containing the registry credentials for pushing to Quay.
   workspaces:
     - name: shared-data
-      description: Workspace for log archiving and image creation files.
-  volumes:
-    - name: sa-docker-secret
-      secret:
-        secretName: $(params.registry-credentials-secret)
+      description: Workspace for log archiving and image creation files. 
   steps:
     - name: fetch-and-prepare-logs
       image: registry.redhat.io/openshift4/ose-cli:latest
@@ -112,14 +108,7 @@ spec:
 
         echo "Building log artifact image..."
 
-        echo "Checking for credentials at /root/.docker/config.json..."
-        if [ -f /root/.docker/config.json ]; then
-            echo "Credentials file found! Attempting push..."
-        else
-            echo "ERROR: Credentials file NOT found! Podman push will fail."
-            ls -al /root/.docker/ # List contents to check the directory structure
-            exit 1 # Exit with error to see the failure immediately
-        fi
+        # The debug check is removed since we trust the SA now.
 
         podman build -t "${FULL_IMAGE_URL}" -f Dockerfile .
 
@@ -127,9 +116,3 @@ spec:
         podman push "${FULL_IMAGE_URL}"
         
         echo "Log artifact successfully uploaded to Quay"
-      
-      volumeMounts:
-        - name: sa-docker-secret
-          mountPath: /tekton/home/.docker/config.json
-          subPath: .dockerconfigjson
-          readOnly: true
