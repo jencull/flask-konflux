@@ -1,0 +1,36 @@
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
+error: unknown flag: --all
+See 'oc logs --help' for usage.
