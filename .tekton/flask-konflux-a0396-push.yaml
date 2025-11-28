@@ -593,22 +593,22 @@ spec:
       optional: true
     - name: credentials-volume
       optional: true
-    finally:
-    - name: export-logs-for-retention
-      taskRef:
-        name: export-pipeline-logs
-      params:
-        - name: pipeline-run-name
-          value: $(context.pipelineRun.name)
-        - name: namespace
-          value: $(context.pipelineRun.namespace)
-        - name: quay-repo
-          value: $(params.output-image)
-        - name: artifact-credentials-secret
-          value: flask-konflux-a0396-image-push
-      workspaces:
-        - name: shared-data
-          workspace: log-export-workspace
+  finally:
+  - name: export-logs-for-retention
+    taskRef:
+      name: export-pipeline-logs
+    params:
+      - name: pipeline-run-name
+        value: $(context.pipelineRun.name)
+      - name: namespace
+        value: $(context.pipelineRun.namespace)
+      - name: quay-repo
+        value: $(params.output-image)
+      - name: artifact-credentials-secret
+        value: flask-konflux-a0396-image-push
+    workspaces:
+      - name: shared-data
+        workspace: log-export-workspace
   taskRunTemplate:
     serviceAccountName: build-pipeline-flask-konflux-a0396
   workspaces:
