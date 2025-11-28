@@ -78,10 +78,6 @@ spec:
         - name: credentials-volume-name
           value: credentials-volume
         # ⬅️ FIX: Re-adding the necessary parameters for the StepAction
-        - name: file-path
-          value: logs.tar.gz
-        - name: media-type
-          value: application/vnd.logs.tar+gzip
       volumeMounts:
         - name: credentials-volume
           mountPath: /tekton/creds/.docker # Mount the volume's contents into this directory
