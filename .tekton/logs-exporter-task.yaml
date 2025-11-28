@@ -49,8 +49,6 @@ spec:
       script: |
         #!/bin/bash
         set -euo pipefail
-
-        # Install jq if needed
         microdnf install jq -y || dnf install jq -y
         
         LOG_FILENAME="all-logs.txt"
@@ -69,17 +67,10 @@ spec:
 
         set -x 
         
-        # 1. Primary log retrieval (REMOVED --all flag)
-        # This attempts to get all logs from the PLR (may still fail on older clusters)
         ${CMD} logs --namespace "${PR_NAMESPACE}" pipelinerun/"${PR_NAME}" > "${LOG_FILENAME}" 2>&1 || {
-            echo "Primary log retrieval failed, attempting fallback by tasks..."
-            
-            # 2. Fallback: Fetch logs for each TaskRun (REMOVED --all flag)
-            # Fetch TaskRun names associated with the PipelineRun
+            echo "Primary log retrieval failed, attempting fallback for older clusters by tasks..."
             ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
-              echo "--- LOGS FOR TASKRUN: ${taskrun} ---" >> "${LOG_FILENAME}" 2>&1
-              # Get logs for the specific TaskRun (without --all)
-              ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" >> "${LOG_FILENAME}" 2>&1 || true
+              ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" --all >> "${LOG_FILENAME}" 2>&1 || true
             done
         }
 
@@ -90,12 +81,7 @@ spec:
             tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
             echo "Created compressed archive: ${ARCHIVE_FILENAME}"
             
-            # Write the tag to the dedicated Task Result
             echo -n "${IMAGE_TAG}" > $(results.LOG_ARTIFACT_TAG.path)
-            
-            # Write the FULL OCI reference to the new Result for the next step to consume
-            echo -n "${FULL_OCI_REF}" > $(results.OCI_REFERENCE.path) 
-            echo "Generated OCI reference: ${FULL_OCI_REF}"
         else
             echo "Warning: Log file is empty. Skipping artifact creation."
             exit 0
