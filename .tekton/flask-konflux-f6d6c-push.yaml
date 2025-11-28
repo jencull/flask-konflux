@@ -591,6 +591,7 @@ spec:
       optional: true
     - name: netrc
       optional: true
+    
     finally:
     - name: export-logs-for-retention
       taskRef:
@@ -609,7 +610,7 @@ spec:
           workspace: log-export-workspace
 
   taskRunTemplate:
-    serviceAccountName: default
+    serviceAccountName: build-pipeline-flask-konflux-f6d6c
   workspaces:
   - name: git-auth
     secret:
@@ -620,6 +621,5 @@ spec:
     emptyDir: {}
   - name: credentials-volume
     secret:
-      # This secret binds the credentials volume required by the log exporter task
       secretName: flask-konflux-f6d6c-image-push
 status: {}
