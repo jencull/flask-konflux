@@ -151,6 +151,17 @@ spec:
         #!/bin/bash
         set -euo pipefail
         
+        echo "=========================================="
+        echo "=== PUSH-LOG-ARTIFACT STEP STARTED ==="
+        echo "=========================================="
+        echo "Working directory: $(pwd)"
+        echo "HOME: ${HOME}"
+        echo "QUAY_REPO: ${QUAY_REPO}"
+        echo ""
+        echo "Files in working directory:"
+        ls -la || true
+        echo ""
+        
         # Read the tag from the file created in the previous step
         echo "=== READING ARTIFACT TAG ==="
         if [ -f "image-tag.txt" ]; then
@@ -174,25 +185,58 @@ spec:
         else
           echo "✗ oras not found, installing..."
           ORAS_VERSION="1.1.0"
-          echo "Downloading oras v${ORAS_VERSION}..."
-          curl -LO "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz" || {
-            echo "✗ Failed to download oras"
+          ORAS_URL="https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+          echo "Downloading oras v${ORAS_VERSION} from: ${ORAS_URL}"
+          echo "Using timeout: 60 seconds"
+          
+          # Try with timeout if available, otherwise use curl directly
+          if command -v timeout &> /dev/null; then
+            timeout 60 curl -L --progress-bar -o "oras_${ORAS_VERSION}_linux_amd64.tar.gz" "${ORAS_URL}" || {
+              echo "✗ Failed to download oras (timeout or network error)"
+              echo "Checking network connectivity..."
+              if command -v ping &> /dev/null; then
+                timeout 5 ping -c 1 github.com 2>&1 || echo "Cannot reach github.com"
+              fi
+              exit 1
+            }
+          else
+            echo "⚠ timeout command not available, using curl without timeout"
+            curl -L --progress-bar -o "oras_${ORAS_VERSION}_linux_amd64.tar.gz" "${ORAS_URL}" --max-time 60 || {
+              echo "✗ Failed to download oras (network error or timeout)"
+              exit 1
+            }
+          fi
+          
+          if [ -f "oras_${ORAS_VERSION}_linux_amd64.tar.gz" ]; then
+            FILE_SIZE=$(stat -f%z "oras_${ORAS_VERSION}_linux_amd64.tar.gz" 2>/dev/null || stat -c%s "oras_${ORAS_VERSION}_linux_amd64.tar.gz" 2>/dev/null || echo "unknown")
+            echo "✓ Downloaded oras tarball (${FILE_SIZE} bytes)"
+          else
+            echo "✗ Downloaded file not found"
             exit 1
-          }
-          echo "✓ Downloaded oras tarball"
+          fi
+          
+          echo "Extracting oras..."
           tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin/ oras || {
             echo "✗ Failed to extract oras"
+            echo "Archive contents:"
+            tar -tzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" 2>&1 | head -10 || true
             exit 1
           }
           echo "✓ Extracted oras to /usr/local/bin/oras"
+          
           chmod +x /usr/local/bin/oras
           echo "✓ Set executable permissions"
+          
           rm "oras_${ORAS_VERSION}_linux_amd64.tar.gz"
           echo "✓ Cleaned up tarball"
+          
           if command -v oras &> /dev/null; then
             echo "✓ oras installation verified"
+            oras version 2>&1 || echo "⚠ oras version check failed but command exists"
           else
             echo "✗ oras installation failed - command not found after install"
+            echo "Checking /usr/local/bin:"
+            ls -la /usr/local/bin/oras 2>&1 || true
             exit 1
           fi
         fi
