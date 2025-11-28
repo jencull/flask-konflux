@@ -591,8 +591,6 @@ spec:
       optional: true
     - name: netrc
       optional: true
-    - name: credentials-volume
-      optional: true
     finally:
     - name: export-logs-for-retention
       taskRef:
@@ -615,9 +613,9 @@ spec:
   - name: git-auth
     secret:
       secretName: '{{ git_auth_secret }}'
-  - name: log-export-workspace
-    emptyDir: {}
   - name: netrc
+    emptyDir: {}
+  - name: log-export-workspace
     emptyDir: {}
   - name: credentials-volume
     secret:
