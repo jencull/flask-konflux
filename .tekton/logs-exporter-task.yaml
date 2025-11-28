@@ -101,9 +101,9 @@ spec:
 
         echo "Building log artifact image..."
 
-        podman build -t "${FULL_IMAGE_URL}" -f Dockerfile .
+        buildah bud -t "${FULL_IMAGE_URL}" -f Dockerfile .
 
         echo "Pushing log artifact to Quay: ${FULL_IMAGE_URL}"
-        podman push "${FULL_IMAGE_URL}"
+        buildah push "${FULL_IMAGE_URL}"
         
         echo "Log artifact successfully uploaded to Quay"
