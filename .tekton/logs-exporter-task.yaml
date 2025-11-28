@@ -11,7 +11,7 @@ spec:
   params:
     - name: quay-repo
       type: string
-      description: The full path to the Quay repository (e.g., quay.io/redhat-user-workloads/rh-ee-jcullina-tenant/app-name).
+      description: The full path to the Quay repository
     - name: pipeline-run-name
       type: string
       description: The name of the PipelineRun whose logs should be collected.
