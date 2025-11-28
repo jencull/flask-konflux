@@ -133,7 +133,7 @@ spec:
           exit 1
         fi
         
-        # Push the tar.gz file as an OCI artifact
+        #  Push the tar.gz file as an OCI artifact
         oras push --no-tty \
           --artifact-type "application/vnd.logs.tar+gzip" \
           "${OCI_REF}" \
