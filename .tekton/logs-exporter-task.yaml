@@ -81,25 +81,68 @@ spec:
             
             # Write the tag to the Tekton result
             echo -n "${IMAGE_TAG}" > $(results.LOG_ARTIFACT_TAG.path)
+            # Also write to a file for use in the next step
+            echo -n "${IMAGE_TAG}" > image-tag.txt
         else
             echo "Warning: Log file is empty. Skipping artifact creation."
             exit 0
         fi
 
     - name: push-log-artifact
-      ref:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/konflux-ci/tekton-integration-catalog.git
-          - name: revision
-            value: main
-          - name: pathInRepo
-            value: stepactions/secure-push-oci/0.1/secure-push-oci.yaml
-      params:
-        - name: workdir-path
-          value: $(workspaces.shared-data.path)
-        - name: oci-ref
-          value: $(params.quay-repo):$(results.LOG_ARTIFACT_TAG)
-        - name: credentials-volume-name
-          value: credentials-volume
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      workingDir: $(workspaces.shared-data.path)
+      env:
+        - name: HOME
+          value: /tmp
+        - name: QUAY_REPO
+          value: $(params.quay-repo)
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        
+        # Read the tag from the file created in the previous step
+        IMAGE_TAG=$(cat image-tag.txt)
+        OCI_REF="${QUAY_REPO}:${IMAGE_TAG}"
+        
+        echo "Pushing log artifact to: ${OCI_REF}"
+        
+        # Install oras if not available
+        if ! command -v oras &> /dev/null; then
+          echo "Installing oras..."
+          ORAS_VERSION="1.1.0"
+          curl -LO "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+          tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin/ oras
+          chmod +x /usr/local/bin/oras
+          rm "oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+        fi
+        
+        # Set up authentication
+        if command -v select-oci-auth &> /dev/null; then
+          select-oci-auth "${QUAY_REPO}" > "$HOME/auth.json" || {
+            echo "Failed to select OCI auth"
+            exit 1
+          }
+          export DOCKER_CONFIG="$HOME"
+        elif [ -f "/tekton/creds/.docker/config.json" ]; then
+          # Fallback to Tekton credentials
+          mkdir -p "$HOME/.docker"
+          cp /tekton/creds/.docker/config.json "$HOME/.docker/config.json" || true
+          export DOCKER_CONFIG="$HOME/.docker"
+        else
+          echo "No authentication method found"
+          exit 1
+        fi
+        
+        # Push the tar.gz file as an OCI artifact
+        oras push --no-tty \
+          --artifact-type "application/vnd.logs.tar+gzip" \
+          "${OCI_REF}" \
+          "logs.tar.gz:application/vnd.logs.tar+gzip" || {
+          echo "Failed to push artifact"
+          exit 1
+        }
+        
+        echo "Successfully pushed log artifact to ${OCI_REF}"
+      volumeMounts:
+        - name: credentials-volume
+          mountPath: /tekton/creds
