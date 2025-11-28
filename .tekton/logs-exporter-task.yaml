@@ -103,7 +103,3 @@ spec:
           value: $(params.quay-repo):$(results.LOG_ARTIFACT_TAG)
         - name: credentials-volume-name
           value: credentials-volume
-        - name: file-path
-          value: logs.tar.gz
-        - name: media-type
-          value: application/vnd.logs.tar+gzip
