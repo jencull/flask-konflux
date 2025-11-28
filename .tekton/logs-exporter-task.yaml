@@ -111,6 +111,16 @@ spec:
         FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
 
         echo "Building log artifact image..."
+
+        echo "Checking for credentials at /root/.docker/config.json..."
+        if [ -f /root/.docker/config.json ]; then
+            echo "Credentials file found! Attempting push..."
+        else
+            echo "ERROR: Credentials file NOT found! Podman push will fail."
+            ls -al /root/.docker/ # List contents to check the directory structure
+            exit 1 # Exit with error to see the failure immediately
+        fi
+
         podman build -t "${FULL_IMAGE_URL}" -f Dockerfile .
 
         echo "Pushing log artifact to Quay: ${FULL_IMAGE_URL}"
