@@ -7,11 +7,12 @@ metadata:
 spec:
   description: |
     Gathers all logs from a completed Tekton PipelineRun, packages them into a simple
-    OCI artifact (tar.gz blob) and pushes it to a specified Quay repository.
+    OCI artifact (tar.gz blob) and pushes it to a specified Quay repository using a
+    secure OCI push step.
   params:
     - name: quay-repo
       type: string
-      description: The base Quay repository path (e.g., quay.io/org/repo).
+      description: The base OCI repository path (e.g., quay.io/org/repo).
     - name: pipeline-run-name
       type: string
       description: The name of the PipelineRun whose logs should be collected.
@@ -21,13 +22,13 @@ spec:
       default: "$(context.pipelineRun.namespace)"
     - name: artifact-credentials-secret
       type: string
-      description: Name of the secret containing registry credentials (must match what secure-push-oci expects, e.g., 'oci-storage-dockerconfigjson' key).
+      description: Name of the secret containing registry credentials.
   results:
     - name: LOG_ARTIFACT_TAG
       description: The specific tag generated for the log artifact.
   workspaces:
     - name: shared-data
-      description: Workspace for log archiving and image creation files.
+      description: Workspace for log archiving and OCI artifact creation files. 
   volumes:
     - name: credentials-volume
       secret:
@@ -47,12 +48,9 @@ spec:
         #!/bin/bash
         set -euo pipefail
 
-        microdnf install jq -y || {
-          echo "Warning: microdnf failed. Attempting dnf install."
-          dnf install jq -y
-        }
+        microdnf install jq -y || dnf install jq -y
         
-        LOG_FILENAME="logs.txt"
+        LOG_FILENAME="all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
         IMAGE_TAG="$(params.pipeline-run-name)-$(date +%Y%m%d%H%M%S)-logs"
 
@@ -74,129 +72,60 @@ spec:
 
         set +x
         
-        echo ""
-        echo "=== ARCHIVE CREATION ==="
         if [ -s "${LOG_FILENAME}" ]; then
-            echo "✓ Successfully fetched logs."
-            echo "Log file size: $(stat -f%z "${LOG_FILENAME}" 2>/dev/null || stat -c%s "${LOG_FILENAME}" 2>/dev/null || echo "unknown") bytes"
-            
-            echo "Creating compressed archive: ${ARCHIVE_FILENAME}"
-            tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}" || {
-              echo "✗ ERROR: Failed to create archive"
-              exit 1
-            }
-            
-            if [ -f "${ARCHIVE_FILENAME}" ]; then
-              ARCHIVE_SIZE=$(stat -f%z "${ARCHIVE_FILENAME}" 2>/dev/null || stat -c%s "${ARCHIVE_FILENAME}" 2>/dev/null || echo "unknown")
-              echo "✓ Created compressed archive: ${ARCHIVE_FILENAME} (${ARCHIVE_SIZE} bytes)"
-            else
-              echo "✗ ERROR: Archive file was not created"
-              exit 1
-            fi
-            
-            echo ""
-            echo "=== WRITING ARTIFACT TAG ==="
-            echo "Tag value: ${IMAGE_TAG}"
+            echo "Successfully fetched logs."
+            tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
+            echo "Created compressed archive: ${ARCHIVE_FILENAME}"
             
             # Write the tag to the Tekton result
-            RESULT_PATH="$(results.LOG_ARTIFACT_TAG.path)"
-            echo "Writing tag to Tekton result path: ${RESULT_PATH}"
-            if [ -n "${RESULT_PATH}" ]; then
-              echo -n "${IMAGE_TAG}" > "${RESULT_PATH}" || {
-                echo "✗ ERROR: Failed to write to result path: ${RESULT_PATH}"
-                echo "Checking if directory exists..."
-                ls -la "$(dirname "${RESULT_PATH}")" 2>&1 || true
-                exit 1
-              }
-              if [ -f "${RESULT_PATH}" ]; then
-                echo "✓ Successfully wrote tag to result path"
-                echo "Result file contents: $(cat "${RESULT_PATH}")"
-              else
-                echo "✗ ERROR: Result file was not created"
-                exit 1
-              fi
-            else
-              echo "⚠ WARNING: Result path is empty, skipping result write"
-            fi
+            echo -n "${IMAGE_TAG}" > $(results.LOG_ARTIFACT_TAG.path)
             
-            # Also write to a file for use in the next step
-            echo "Writing tag to image-tag.txt for next step"
-            echo -n "${IMAGE_TAG}" > image-tag.txt || {
-              echo "✗ ERROR: Failed to write to image-tag.txt"
-              exit 1
-            }
-            if [ -f "image-tag.txt" ]; then
-              echo "✓ Successfully wrote tag to image-tag.txt"
-              echo "Tag file contents: $(cat image-tag.txt)"
-              echo "Tag file size: $(stat -f%z image-tag.txt 2>/dev/null || stat -c%s image-tag.txt 2>/dev/null || echo "unknown") bytes"
-            else
-              echo "✗ ERROR: image-tag.txt was not created"
-              exit 1
-            fi
-            
-            echo ""
-            echo "=== STEP COMPLETE ==="
-            echo "Files in working directory:"
-            ls -la || true
+            # Write the tag to a shared file for the next step to consume
+            echo -n "${IMAGE_TAG}" > image-tag.txt
         else
-            echo "✗ WARNING: Log file is empty. Skipping artifact creation."
+            echo "Warning: Log file is empty. Skipping artifact creation."
             exit 0
         fi
 
-    - name: secure-push-oci
+    - name: read-tag-and-push
       image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
       workingDir: $(workspaces.shared-data.path)
+      # This step is needed to read the file and pass the OCI reference string
+      # to the subsequent StepAction without using the illegal parameters.
+      env:
+        - name: OCI_REFERENCE
+          value: $(params.quay-repo)
       script: |
         #!/bin/bash
         set -euo pipefail
         
-        echo "=== SECURE PUSH OCI STEP ==="
+        # Read the generated tag
+        IMAGE_TAG=$(cat image-tag.txt)
         
-        # Read the tag from the file created in the previous step
-        if [ -f "image-tag.txt" ]; then
-          IMAGE_TAG=$(cat image-tag.txt)
-          echo "✓ Read tag from image-tag.txt: ${IMAGE_TAG}"
-        else
-          echo "✗ ERROR: image-tag.txt not found!"
-          exit 1
-        fi
+        # Construct the final OCI Reference
+        FULL_OCI_REF="${OCI_REFERENCE}:${IMAGE_TAG}"
         
-        OCI_REF="$(params.quay-repo):${IMAGE_TAG}"
-        echo "✓ OCI reference: ${OCI_REF}"
+        # Write the full reference to a file for the next step to use
+        echo -n "${FULL_OCI_REF}" > full-oci-ref.txt
         
-        # Verify the file to push exists
-        if [ ! -f "logs.tar.gz" ]; then
-          echo "✗ ERROR: logs.tar.gz not found!"
-          exit 1
-        fi
-        echo "✓ Found logs.tar.gz to push"
+        echo "Ready to push artifact to: ${FULL_OCI_REF}"
         
-        # The secure-push-oci StepAction logic:
-        # It uses the credentials from the mounted volume at /tekton/creds
-        # and pushes the file using oras
-        
-        # Set up authentication from the mounted credentials volume
-        if [ -f "/tekton/creds/.docker/config.json" ]; then
-          echo "✓ Using credentials from /tekton/creds/.docker/config.json"
-          export DOCKER_CONFIG="/tekton/creds/.docker"
-        else
-          echo "✗ ERROR: Credentials not found at /tekton/creds/.docker/config.json"
-          echo "Available in /tekton/creds:"
-          ls -la /tekton/creds/ 2>&1 || true
-          exit 1
-        fi
-        
-        # Push using oras (same as secure-push-oci StepAction does)
-        echo "Pushing artifact to ${OCI_REF}..."
-        oras push --no-tty \
-          --artifact-type "application/vnd.logs.tar+gzip" \
-          "${OCI_REF}" \
-          "logs.tar.gz:application/vnd.logs.tar+gzip" || {
-          echo "✗ ERROR: Failed to push artifact"
-          exit 1
-        }
-        
-        echo "✓ Successfully pushed log artifact to ${OCI_REF}"
-      volumeMounts:
-        - name: credentials-volume
-          mountPath: /tekton/creds
+    - name: push-log-artifact
+      ref:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/tekton-integration-catalog.git
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: stepactions/secure-push-oci/0.1/secure-push-oci.yaml
+      params:
+        - name: workdir-path
+          value: $(workspaces.shared-data.path)
+        # Pass the full OCI reference string from the previous step's output file
+        - name: oci-ref
+          value: $(cat $(workspaces.shared-data.path)/full-oci-ref.txt)
+        # This parameter is required for the StepAction to find the credentials
+        - name: credentials-volume-name
+          value: credentials-volume

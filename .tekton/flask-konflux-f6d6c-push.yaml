@@ -591,10 +591,35 @@ spec:
       optional: true
     - name: netrc
       optional: true
+    finally:
+    - name: export-logs-for-retention
+      taskRef:
+        name: export-pipeline-logs
+      params:
+        - name: pipeline-run-name
+          value: $(context.pipelineRun.name)
+        - name: namespace
+          value: $(context.pipelineRun.namespace)
+        - name: quay-repo
+          value: $(params.output-image)
+        - name: artifact-credentials-secret
+          value: flask-konflux-f6d6c-image-push
+      workspaces:
+        - name: shared-data
+          workspace: log-export-workspace
+
   taskRunTemplate:
     serviceAccountName: build-pipeline-flask-konflux-f6d6c
   workspaces:
   - name: git-auth
     secret:
       secretName: '{{ git_auth_secret }}'
+  - name: netrc
+    emptyDir: {}
+  - name: log-export-workspace
+    emptyDir: {}
+  - name: credentials-volume
+    secret:
+      # This secret binds the credentials volume required by the log exporter task
+      secretName: flask-konflux-f6d6c-image-push
 status: {}
