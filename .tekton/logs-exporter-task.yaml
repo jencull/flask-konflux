@@ -44,7 +44,7 @@ spec:
           value: "$(params.pipeline-run-name)"
         - name: PR_NAMESPACE
           value: "$(params.namespace)"
-        - name: OCI_REPO
+        - name: OCI_REPO_WITH_TAG
           value: "$(params.quay-repo)"
         - name: HOME
           value: /tmp
@@ -57,10 +57,17 @@ spec:
         
         LOG_FILENAME="all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
-        # Generate unique tag
+        
+        # 1. Strip the existing tag/revision from the base OCI_REPO_WITH_TAG string.
+        # This keeps only the repository name (quay.io/org/repo/component), 
+        # allowing us to append the new tag safely.
+        REPO_NAME_ONLY="${OCI_REPO_WITH_TAG%:*}"
+        
+        # Generate unique timestamp tag
         IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
-        # Construct the full OCI reference
-        FULL_OCI_REF="${OCI_REPO}:${IMAGE_TAG}"
+        
+        # 2. Construct the corrected full OCI reference: repo:new-log-tag
+        FULL_OCI_REF="${REPO_NAME_ONLY}:${IMAGE_TAG}"
 
         echo "Starting log export for PipelineRun: ${PR_NAME}"
         
@@ -112,10 +119,8 @@ spec:
       params:
         - name: workdir-path
           value: $(workspaces.shared-data.path)
-        # FIX: Pass the Task Result from the previous step. Tekton provides the literal 
-        # string value of the result, which is the correct format for oci-ref.
+        # FIX: Passes the corrected URL from the Task Result
         - name: oci-ref
           value: $(steps.fetch-and-prepare-logs.results.OCI_REFERENCE)
         - name: credentials-volume-name
           value: credentials-volume
-  
