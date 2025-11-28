@@ -609,7 +609,7 @@ spec:
           workspace: log-export-workspace
 
   taskRunTemplate:
-    serviceAccountName: build-pipeline-flask-konflux-f6d6c
+    serviceAccountName: default
   workspaces:
   - name: git-auth
     secret:
