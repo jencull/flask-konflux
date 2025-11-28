@@ -51,22 +51,13 @@ spec:
       script: |
         #!/bin/bash
         set -euo pipefail
-
-        # Install jq if needed
         microdnf install jq -y || dnf install jq -y
         
         LOG_FILENAME="all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
         
-        # 1. Strip the existing tag/revision from the base OCI_REPO_WITH_TAG string.
-        # This keeps only the repository name (quay.io/org/repo/component), 
-        # allowing us to append the new tag safely.
         REPO_NAME_ONLY="${OCI_REPO_WITH_TAG%:*}"
-        
-        # Generate unique timestamp tag
         IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
-        
-        # 2. Construct the corrected full OCI reference: repo:new-log-tag
         FULL_OCI_REF="${REPO_NAME_ONLY}:${IMAGE_TAG}"
 
         echo "Starting log export for PipelineRun: ${PR_NAME}"
@@ -78,12 +69,9 @@ spec:
 
         set -x 
         
-        # Log retrieval logic: Attempt to get all logs from the PipelineRun, 
-        # falling back to getting logs per TaskRun if the primary command fails.
         ${CMD} logs --namespace "${PR_NAMESPACE}" pipelinerun/"${PR_NAME}" --all > "${LOG_FILENAME}" 2>&1 || {
             echo "Primary log retrieval failed, attempting fallback for older clusters by tasks..."
             ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
-              # We use '|| true' here to ensure the loop continues even if a specific taskrun log fails
               ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" --all >> "${LOG_FILENAME}" 2>&1 || true
             done
         }
@@ -95,10 +83,8 @@ spec:
             tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
             echo "Created compressed archive: ${ARCHIVE_FILENAME}"
             
-            # Write the tag to the dedicated Task Result
             echo -n "${IMAGE_TAG}" > $(results.LOG_ARTIFACT_TAG.path)
             
-            # Write the FULL OCI reference to the new Result for the next step to consume
             echo -n "${FULL_OCI_REF}" > $(results.OCI_REFERENCE.path) 
             echo "Generated OCI reference: ${FULL_OCI_REF}"
         else
@@ -123,3 +109,7 @@ spec:
           value: $(steps.fetch-and-prepare-logs.results.OCI_REFERENCE)
         - name: credentials-volume-name
           value: credentials-volume
+      volumeMounts:
+        - name: credentials-volume
+          mountPath: /tekton/creds/.docker
+          readOnly: true
