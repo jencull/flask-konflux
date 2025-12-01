@@ -49,8 +49,8 @@ spec:
         LOG_FILENAME="all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
 
-        IMAGE_TAG="${OCI_REPO_WITH_TAG%:*}"-$(date +%Y%m%d%H%M%S)-logs
-        
+        IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
+
         CMD="kubectl"
         
         # Fetch logs by TaskRun and get the Pod name
