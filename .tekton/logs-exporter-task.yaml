@@ -67,12 +67,13 @@ spec:
 
         set -x 
         
-        ${CMD} logs --namespace "${PR_NAMESPACE}" pipelinerun/"${PR_NAME}" > "${LOG_FILENAME}" 2>&1 || {
-            echo "Primary log retrieval failed, attempting fallback for older clusters by tasks..."
-            ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
-              ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" --all >> "${LOG_FILENAME}" 2>&1 || true
-            done
-        }
+        echo "Fetching logs by TaskRun..."
+        # Fetch TaskRun names associated with the PipelineRun
+        ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
+            echo "--- LOGS FOR TASKRUN: ${taskrun} ---" >> "${LOG_FILENAME}" 2>&1
+            # Get logs for the specific TaskRun
+            ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" >> "${LOG_FILENAME}" 2>&1 || true
+        done
 
         set +x
         

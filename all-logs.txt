@@ -1,5 +1,4 @@
-error: unknown flag: --all
-See 'oc logs --help' for usage.
+error: no kind "PipelineRun" is registered for version "tekton.dev/v1" in scheme "k8s.io/kubectl/pkg/scheme/scheme.go:28"
 error: unknown flag: --all
 See 'oc logs --help' for usage.
 error: unknown flag: --all
