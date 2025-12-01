@@ -8,7 +8,7 @@ spec:
   description: |
     Gathers all logs from a completed Tekton PipelineRun, packages them into a simple
     OCI artifact (tar.gz blob), and pushes it to a specified Quay repository using direct
-    OCI push commands, bypassing StepAction parameter expansion issues.
+    OCI push commands.
   params:
     - name: quay-repo
       type: string
@@ -44,54 +44,33 @@ spec:
           value: "$(params.namespace)"
         - name: OCI_REPO_WITH_TAG
           value: "$(params.quay-repo)"
-        - name: HOME
-          value: /tmp
       script: |
         #!/bin/bash
         set -euo pipefail
-        microdnf install jq -y || dnf install jq -y
         
         LOG_FILENAME="all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
         
         REPO_NAME_ONLY="${OCI_REPO_WITH_TAG%:*}"
         IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
-        FULL_OCI_REF="${REPO_NAME_ONLY}:${IMAGE_TAG}"
-
-        echo "Starting log export for PipelineRun: ${PR_NAME}"
         
         CMD="kubectl"
         
-        set -x 
-        
-        echo "Fetching logs by TaskRun (Pod Fallback)..."
-        # 1. Fetch TaskRun names associated with the PipelineRun
+        # 1. Fetch logs by TaskRun and get the Pod name (to bypass client schema errors)
         ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
-            
-            # 2. Extract the associated Pod name from the TaskRun status
             POD_NAME=$(${CMD} get tr "${taskrun}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.podName // empty')
 
             if [ -n "$POD_NAME" ]; then
-                echo "--- LOGS FOR TASKRUN: ${taskrun} (Pod: ${POD_NAME}) ---" >> "${LOG_FILENAME}" 2>&1
-                
-                # 3. Get logs for the Pod (Core Kubernetes resource)
-                # The Tekton TaskRun only runs one main container, so we don't need --all
+                echo "--- LOGS FOR ${taskrun} (Pod: ${POD_NAME}) ---" >> "${LOG_FILENAME}" 2>&1
                 ${CMD} logs --namespace "${PR_NAMESPACE}" pod/"${POD_NAME}" >> "${LOG_FILENAME}" 2>&1 || true
-            else
-                echo "--- WARNING: Pod name not found for TaskRun: ${taskrun} ---" >> "${LOG_FILENAME}" 2>&1
             fi
         done
-
-        set +x
         
+        # 2. Archive and set result if logs exist
         if [ -s "${LOG_FILENAME}" ]; then
-            echo "Successfully fetched logs."
             tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
-            echo "Created compressed archive: ${ARCHIVE_FILENAME}"
-            
             echo -n "${IMAGE_TAG}" > $(results.LOG_ARTIFACT_TAG.path)
         else
-            echo "Warning: Log file is empty. Skipping artifact creation."
             exit 0
         fi
 
@@ -105,34 +84,22 @@ spec:
         #!/bin/bash
         set -euo pipefail
         
-        # 1. Read the dynamically generated tag (This assumes the previous step wrote a file named image-tag.txt,
-        # but since we removed the OCI_REFERENCE result, we need to read the tag from the result file directly)
         IMAGE_TAG=$(cat $(results.LOG_ARTIFACT_TAG.path))
         
-        # 2. Construct the final OCI Reference
         REPO_NAME_ONLY="${OCI_REFERENCE_BASE%:*}"
         FULL_OCI_REF="${REPO_NAME_ONLY}:${IMAGE_TAG}"
-        echo "Ready to push artifact to: ${FULL_OCI_REF}"
         
-        # 3. Setup authentication using the default Task volume mount path
-        # The Task volume is mounted to the standard path /tekton/volumes/credentials-volume/
+        # Setup authentication
         AUTH_DIR="/tekton/volumes/credentials-volume"
         AUTH_PATH="$AUTH_DIR/.dockerconfigjson"
         
         if [ -f "$AUTH_PATH" ]; then
-          # Create a temporary config dir for oras/docker and copy the secret file there
           TEMP_DOCKER_CONFIG="$(mktemp -d)"
           cp "$AUTH_PATH" "$TEMP_DOCKER_CONFIG/config.json"
           export DOCKER_CONFIG="$TEMP_DOCKER_CONFIG"
-          echo "Using temporary DOCKER_CONFIG: $DOCKER_CONFIG"
-        else
-          echo "ERROR: Credentials file NOT found at $AUTH_PATH (standard volume path). Attempting push without explicit auth setup."
-          # Continue without explicit DOCKER_CONFIG; relying on ServiceAccount token if possible.
-          # This is the point where we hope the failure stops being fatal.
         fi
         
-        # 4. Push the artifact using the oras utility directly
-        echo "Executing oras push..."
+        # Execute push
         oras push --no-tty \
           --artifact-type "application/vnd.logs.tar+gzip" \
           "${FULL_OCI_REF}" \
