@@ -49,7 +49,7 @@ spec:
         LOG_FILENAME="all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
 
-        FULL_OCI_REF="${OCI_REFERENCE_BASE%:*}":"${IMAGE_TAG}"
+        IMAGE_TAG="${OCI_REPO_WITH_TAG%:*}"-$(date +%Y%m%d%H%M%S)-logs
         
         CMD="kubectl"
         
