@@ -48,9 +48,8 @@ spec:
         
         LOG_FILENAME="all-logs.txt"
         ARCHIVE_FILENAME="logs.tar.gz"
-        
-        REPO_NAME_ONLY="${OCI_REPO_WITH_TAG%:*}"
-        IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
+
+        FULL_OCI_REF="${OCI_REFERENCE_BASE%:*}":"${IMAGE_TAG}"
         
         CMD="kubectl"
         
