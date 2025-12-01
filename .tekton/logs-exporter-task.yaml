@@ -86,7 +86,8 @@ spec:
         
         IMAGE_TAG=$(cat $(results.LOG_ARTIFACT_TAG.path))
         
-        IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)-logs"
+        REPO_NAME_ONLY="${OCI_REFERENCE_BASE%:*}"
+        FULL_OCI_REF="${REPO_NAME_ONLY}:${IMAGE_TAG}"
         
         # Setup authentication
         AUTH_DIR="/tekton/volumes/credentials-volume"
