@@ -35,7 +35,7 @@ spec:
         secretName: $(params.artifact-credentials-secret)
   steps:
     - name: fetch-and-prepare-logs
-      image: registry.redhat.io/openshift4/ose-cli:latest
+      image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
       workingDir: $(workspaces.shared-data.path)
       env:
         - name: PR_NAME
