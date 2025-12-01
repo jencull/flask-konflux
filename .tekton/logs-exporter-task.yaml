@@ -60,11 +60,8 @@ spec:
 
         echo "Starting log export for PipelineRun: ${PR_NAME}"
         
-        CMD="oc"
-        if ! command -v oc &> /dev/null; then
-          CMD="kubectl"
-        fi
-
+        CMD="kubectl"
+        
         set -x 
         
         echo "Fetching logs by TaskRun..."
